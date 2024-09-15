@@ -1,242 +1,437 @@
 #!/bin/bash
 
-# Define colors
+# Color definitions
 RED='\e[0;31m'
 GREEN='\e[1;32m'
+BLUE='\e[0;36m'
 RC='\e[0m'
 
-# Installer message
-INSTALLER_MSG="${GREEN}--------------------------------------------------\nInstaller made by Dulgan\n--------------------------------------------------${RC}"
-
-# Display installer message at the start
+# Initial message
+INSTALLER_MSG="${BLUE}--------------------------------------------------\nAK Installer Script made by Dulgan\n--------------------------------------------------${RC}"
 echo -e "$INSTALLER_MSG"
 
-# Variables to track the installation process
-POSTGRESQL_INSTALLED=false
-CONFIG_SUCCESS=false
-DB_CREATION_SUCCESS=true
-SQL_IMPORT_SUCCESS=true
-DOWNLOAD_SUCCESS=false
-PATCH_SUCCESS=false
-ADMIN_CREATION_SUCCESS=false
+# Variables
+DB_VERSION=13
+DB_USER='postgres'
+DB_PASS=''
+INSTALL_DIR='/root/hxsy'
+DOWNLOAD_URL='https://mega.nz/file/zuRHyBia#fD-_B-XXc20mt2T1ErD0b_YWqXHO8KDpqCEvmz7Xfy4'
 
-# Function to check if a package is installed
-is_installed() {
-    if [ -x "$(command -v apt-get)" ]; then
-        dpkg -s "$1" &> /dev/null
-    elif [ -x "$(command -v yum)" ]; then
-        rpm -q "$1" &> /dev/null
+# Operation status variables
+declare -A STATUS=(
+    [postgresql_installed]=false
+    [config_success]=false
+    [db_creation_success]=false
+    [sql_import_success]=false
+    [download_success]=false
+    [patch_success]=false
+    [admin_creation_success]=false
+    [grub_configured]=false
+)
+
+# Exit on error with a message
+error_exit() {
+    echo -e "${RED}$1${RC}"
+    exit 1
+}
+
+# Detect the operating system and set the package manager
+detect_os() {
+    if [ -f /etc/debian_version ]; then
+        OS='Debian'
+        PKG_MANAGER='apt-get'
+    elif [ -f /etc/centos-release ] || [ -f /etc/redhat-release ]; then
+        OS='CentOS'
+        PKG_MANAGER='yum'
+    else
+        error_exit "Unsupported operating system. This script supports Ubuntu, Debian, and CentOS."
     fi
 }
 
-# Function to install a package only if it's not already installed
-install_package() {
-    PACKAGE=$1
-    if is_installed "$PACKAGE"; then
-        echo -e "${GREEN}Package '$PACKAGE' is already installed.${RC}"
+# Check the kernel version
+check_kernel_version() {
+    KERNEL_VERSION=$(uname -r | cut -d'.' -f1)
+    if [ "$KERNEL_VERSION" -ge 6 ]; then
+        echo -e "${RED}Warning: Your kernel version is 6.x or higher.${RC}"
+        echo -e "${RED}For compatibility with the server binaries, it is recommended to use kernel 5.x.${RC}"
+        echo -e "${RED}Consider downgrading your kernel version, for example by using Debian 11.${RC}"
+        read -p "Press Enter to continue at your own risk or Ctrl+C to cancel..." dummy
+    fi
+}
+
+# Update package lists
+update_packages() {
+    echo -e "${BLUE}Updating package lists...${RC}"
+    if [ "$PKG_MANAGER" = 'apt-get' ]; then
+        sudo apt-get -qq update || error_exit "Failed to update package lists."
+    elif [ "$PKG_MANAGER" = 'yum' ]; then
+        sudo yum -q -y update || error_exit "Failed to update package lists."
+    fi
+}
+
+# Install necessary packages
+install_packages() {
+    echo -e "${BLUE}Installing necessary packages...${RC}"
+    if [ "$PKG_MANAGER" = 'apt-get' ]; then
+        sudo apt-get -qq install -y wget pwgen gnupg unzip megatools || error_exit "Failed to install necessary packages."
+    elif [ "$PKG_MANAGER" = 'yum' ]; then
+        # Add the Raven repository for megatools
+        echo -e "${BLUE}Adding the Raven repository...${RC}"
+        sudo dnf install -y https://pkgs.dyn.su/el9/base/x86_64/raven-release.el9.noarch.rpm || error_exit "Failed to add Raven repository."
+
+        # Install necessary packages including megatools
+        sudo dnf install -y wget pwgen gnupg2 unzip megatools || error_exit "Failed to install necessary packages."
+    fi
+}
+
+# Install PostgreSQL (only if not already installed)
+install_postgresql() {
+    # Check if PostgreSQL is already installed
+    if command -v psql &> /dev/null; then
+        echo -e "${GREEN}PostgreSQL is already installed. Skipping installation.${RC}"
+        STATUS[postgresql_installed]=true
+        return
+    fi
+    
+    echo -e "${BLUE}Installing PostgreSQL $DB_VERSION...${RC}"
+    
+    if [ "$OS" = 'Debian' ]; then
+        wget -qO - https://www.postgresql.org/media/keys/ACCC4CF8.asc | sudo apt-key add - || error_exit "Failed to add PostgreSQL GPG key."
+        echo "deb http://apt.postgresql.org/pub/repos/apt/ $(lsb_release -cs)-pgdg main" | sudo tee /etc/apt/sources.list.d/pgdg.list
+        sudo apt-get -qq update || error_exit "Failed to update package lists."
+        sudo apt-get -qq install -y "postgresql-$DB_VERSION" || error_exit "Failed to install PostgreSQL."
+    
+    elif [ "$OS" = 'CentOS' ]; then
+        # Add the PostgreSQL repository for CentOS 9 Stream
+        echo -e "${BLUE}Adding PostgreSQL repository...${RC}"
+        sudo dnf install -y https://download.postgresql.org/pub/repos/yum/reporpms/EL-9-x86_64/pgdg-redhat-repo-latest.noarch.rpm || error_exit "Failed to add PostgreSQL repository."
+
+        # Install PostgreSQL
+        echo -e "${BLUE}Installing PostgreSQL $DB_VERSION...${RC}"
+        sudo dnf install -y "postgresql$DB_VERSION-server" "postgresql$DB_VERSION-contrib" || error_exit "Failed to install PostgreSQL packages."
+        
+        # Initialize PostgreSQL database
+        sudo "/usr/pgsql-$DB_VERSION/bin/postgresql-$DB_VERSION-setup" initdb || error_exit "Failed to initialize PostgreSQL database."
+        
+        # Enable and start PostgreSQL service
+        sudo systemctl enable "postgresql-$DB_VERSION"
+        sudo systemctl start "postgresql-$DB_VERSION"
+    fi
+
+    # Final check if PostgreSQL is installed
+    if command -v psql &> /dev/null; then
+        STATUS[postgresql_installed]=true
+        echo -e "${GREEN}PostgreSQL $DB_VERSION installed successfully.${RC}"
     else
-        echo -e "${GREEN}Installing package '$PACKAGE'...${RC}"
-        if [ -x "$(command -v apt-get)" ]; then
-            sudo apt-get -qq install "$PACKAGE" -y
-        elif [ -x "$(command -v yum)" ]; then
-            sudo yum -q -y install "$PACKAGE"
+        error_exit "PostgreSQL installation failed."
+    fi
+}
+
+# Configure PostgreSQL
+configure_postgresql() {
+    echo -e "${BLUE}Configuring PostgreSQL...${RC}"
+    
+    if [ "$OS" = 'Debian' ]; then
+        PG_CONF="/etc/postgresql/$DB_VERSION/main/postgresql.conf"
+        PG_HBA="/etc/postgresql/$DB_VERSION/main/pg_hba.conf"
+        SERVICE_NAME="postgresql"
+    elif [ "$OS" = 'CentOS' ]; then
+        PG_CONF="/var/lib/pgsql/$DB_VERSION/data/postgresql.conf"
+        PG_HBA="/var/lib/pgsql/$DB_VERSION/data/pg_hba.conf"
+        SERVICE_NAME="postgresql-$DB_VERSION"
+    fi
+
+    # Modify postgresql.conf and pg_hba.conf as needed
+    sudo sed -i "s/#listen_addresses = 'localhost'/listen_addresses = '*'/g" "$PG_CONF" || error_exit "Failed to update postgresql.conf."
+    
+    if ! grep -q "host    all             all             0.0.0.0/0            md5" "$PG_HBA"; then
+        echo "host    all             all             0.0.0.0/0            md5" | sudo tee -a "$PG_HBA" || error_exit "Failed to update pg_hba.conf."
+    fi
+    
+    # Restart PostgreSQL service
+    sudo systemctl restart "$SERVICE_NAME" || error_exit "Failed to restart PostgreSQL service."
+    
+    STATUS[config_success]=true
+    echo -e "${GREEN}PostgreSQL configuration completed.${RC}"
+}
+
+# Secure PostgreSQL
+secure_postgresql() {
+    echo -e "${BLUE}Securing PostgreSQL...${RC}"
+    DB_PASS=$(pwgen -s 32 1)
+    cd /tmp
+    sudo -H -u "$DB_USER" psql -c "ALTER USER $DB_USER WITH PASSWORD '$DB_PASS';" || error_exit "Failed to set PostgreSQL password."
+    echo -e "${GREEN}Password set for PostgreSQL user '$DB_USER'.${RC}"
+}
+
+# Set up firewall rules
+setup_firewall_rules() {
+    echo -e "${BLUE}Setting up firewall rules...${RC}"
+    PORTS=("6543" "5567" "5568" "10021" "10022")
+    if [ -x "$(command -v ufw)" ]; then
+        echo -e "${GREEN}Configuring UFW firewall...${RC}"
+        sudo ufw allow ssh >/dev/null 2>&1
+        for port in "${PORTS[@]}"; do
+            if sudo ufw status | grep -qw "$port"; then
+                echo -e "${BLUE}Port $port is already allowed in UFW.${RC}"
+            else
+                sudo ufw allow "$port"/tcp || error_exit "Failed to allow port $port in UFW."
+                echo -e "${GREEN}Port $port allowed in UFW.${RC}"
+            fi
+        done
+        sudo ufw reload || error_exit "Failed to reload UFW."
+    elif [ -x "$(command -v firewall-cmd)" ]; then
+        echo -e "${GREEN}Configuring Firewalld firewall...${RC}"
+        sudo firewall-cmd --permanent --add-service=ssh >/dev/null 2>&1
+        for port in "${PORTS[@]}"; do
+            if sudo firewall-cmd --list-ports | grep -qw "$port/tcp"; then
+                echo -e "${BLUE}Port $port is already allowed in Firewalld.${RC}"
+            else
+                sudo firewall-cmd --permanent --add-port="$port"/tcp || error_exit "Failed to allow port $port in Firewalld."
+                echo -e "${GREEN}Port $port allowed in Firewalld.${RC}"
+            fi
+        done
+        sudo firewall-cmd --reload || error_exit "Failed to reload Firewalld."
+    else
+        echo -e "${RED}No supported firewall detected. Please configure your firewall manually.${RC}"
+    fi
+    echo -e "${GREEN}Firewall rules set successfully.${RC}"
+}
+
+# Download server files
+download_server_files() {
+    echo -e "${BLUE}Downloading server files...${RC}"
+    megadl "$DOWNLOAD_URL" --path "/root/hxsy.zip" || error_exit "Failed to download hxsy.zip."
+    if [ -f "/root/hxsy.zip" ]; then
+        STATUS[download_success]=true
+        echo -e "${GREEN}Server files downloaded.${RC}"
+    else
+        error_exit "Failed to download hxsy.zip."
+    fi
+}
+
+# Extract server files
+extract_server_files() {
+    echo -e "${BLUE}Extracting server files...${RC}"
+    unzip -qo "/root/hxsy.zip" -d "/root" || error_exit "Failed to extract hxsy.zip."
+    chmod -R 755 "$INSTALL_DIR"
+    rm "/root/hxsy.zip"
+    echo -e "${GREEN}Server files extracted.${RC}"
+}
+
+# Create and import databases
+import_databases() {
+    echo -e "${BLUE}Creating and importing databases...${RC}"
+    DATABASES=("FFAccount" "FFDB1" "FFMember")
+
+    cd /tmp
+
+    for DB in "${DATABASES[@]}"; do
+        sudo -H -u "$DB_USER" psql -c "DROP DATABASE IF EXISTS \"$DB\";" || error_exit "Failed to drop database $DB."
+        sudo -H -u "$DB_USER" createdb -T template0 "$DB" || error_exit "Failed to create database $DB."
+    done
+    STATUS[db_creation_success]=true
+
+    # Import SQL files
+    for DB in "${DATABASES[@]}"; do
+        SQL_FILE="$INSTALL_DIR/SQL/$DB.bak"
+        if [ -f "$SQL_FILE" ]; then
+            sudo -H -u "$DB_USER" psql "$DB" < "$SQL_FILE" || error_exit "Failed to import $DB.bak."
+        else
+            error_exit "SQL file $SQL_FILE not found."
         fi
-    fi
+    done
+    STATUS[sql_import_success]=true
+    echo -e "${GREEN}Databases imported successfully.${RC}"
 }
 
-# Make sure lists are up to date for both apt (Debian/Ubuntu) and yum (CentOS)
-if [ -x "$(command -v apt-get)" ]; then
-    sudo apt-get -qq update
-elif [ -x "$(command -v yum)" ]; then
-    sudo yum -q -y update
-fi
+# Patch server files
+patch_server_files() {
+    echo -e "${BLUE}Patching server files...${RC}"
+    
+    # Convert IP address to hex format and use the first 3 bytes
+    IFS='.' read -r -a IP_ARRAY <<< "$IP"
+    PATCHIP=$(printf '\\x%02X\\x%02X\\x%02X' "${IP_ARRAY[0]}" "${IP_ARRAY[1]}" "${IP_ARRAY[2]}")
+    
+    # Replace password placeholders in setup.ini files
+    sed -i "s/xxxxxxxx/$DBPASS/g" "$INSTALL_DIR/setup.ini" || error_exit "Failed to patch setup.ini."
+    sed -i "s/xxxxxxxx/$DBPASS/g" "$INSTALL_DIR/GatewayServer/setup.ini" || error_exit "Failed to patch GatewayServer/setup.ini."
+    
+    # Patch MissionServer binary file
+    sed -i "s/\x44\x24\x0c\x28\x62\x34/\x44\x24\x0c\x08\x49\x40/g" "$INSTALL_DIR/MissionServer/MissionServer" || error_exit "Failed to patch MissionServer."
+    
+    # Replace IP address bytes in the binaries (adjust if necessary)
+    ORIGINAL_IP_BYTES='\x3d\xc0\xa8\x64'  # Example placeholder (192.168.100)
+    
+    # Patch WorldServer binary
+    sed -i "s/$ORIGINAL_IP_BYTES/\x3d$PATCHIP/g" "$INSTALL_DIR/WorldServer/WorldServer" || error_exit "Failed to patch WorldServer."
+    
+    # Patch ZoneServer binary
+    sed -i "s/$ORIGINAL_IP_BYTES/\x3d$PATCHIP/g" "$INSTALL_DIR/ZoneServer/ZoneServer" || error_exit "Failed to patch ZoneServer."
+    
+    # Update IP addresses in PostgreSQL database
+    sudo -u postgres psql -d FFAccount -c "UPDATE worlds SET ip = '$IP';" || error_exit "Failed to update IP in FFAccount database."
+    sudo -u postgres psql -d FFDB1 -c "UPDATE serverstatus SET ext_address = '$IP' WHERE ext_address <> '127.0.0.1';" || error_exit "Failed to update external IP in FFDB1 database."
+    sudo -u postgres psql -d FFDB1 -c "UPDATE serverstatus SET int_address = '$IP' WHERE int_address <> '127.0.0.1';" || error_exit "Failed to update internal IP in FFDB1 database."
 
-# Install necessary packages (sudo, wget, unzip, psmisc, postgresql, pwgen)
-install_package sudo
-install_package wget
-install_package unzip
-install_package psmisc
-install_package pwgen
+    STATUS[patch_success]=true
+    echo -e "${GREEN}Server files patched successfully.${RC}"
+}
 
-# Install PostgreSQL (using version 13 as default for now)
-if [ -x "$(command -v apt-get)" ]; then
-    install_package postgresql
-elif [ -x "$(command -v yum)" ]; then
-    install_package postgresql-server
-    install_package postgresql-contrib
-    sudo postgresql-setup initdb
-    sudo systemctl start postgresql
-    sudo systemctl enable postgresql
-fi
-
-# Check if PostgreSQL was installed successfully
-if command -v psql &> /dev/null; then
-    POSTGRESQL_INSTALLED=true
-else
-    echo -e "${RED}Error: PostgreSQL installation failed.${RC}"
-fi
-
-# Configure PostgreSQL to listen on all IPs
-if $POSTGRESQL_INSTALLED; then
-    POSTGRESQLVERSION=$(psql --version | grep -oP '\d+' | head -1)
-    if [ -d "/etc/postgresql/$POSTGRESQLVERSION/main" ]; then
-        cd "/etc/postgresql/$POSTGRESQLVERSION/main"
-        sudo sed -i "s/#listen_addresses = 'localhost'/listen_addresses = '*'/g" postgresql.conf
-        sudo sed -i "s+host    all             all             127.0.0.1/32            md5+host    all             all             0.0.0.0/0            md5+g" pg_hba.conf
-        sudo systemctl restart postgresql
-        CONFIG_SUCCESS=true
+# Configure GRUB for vsyscall
+configure_grub() {
+    KERNEL_VERSION=$(uname -r | cut -d'.' -f1)
+    
+    # Only run this function if kernel version is 6 or higher
+    if [ "$KERNEL_VERSION" -lt 6 ]; then
+        echo -e "${GREEN}Kernel version is less than 6. No need to configure GRUB for vsyscall support.${RC}"
+        return
+    fi
+    
+    echo -e "${BLUE}Configuring GRUB for vsyscall support...${RC}"
+    
+    if [ -f /etc/default/grub ]; then
+        # Check if vsyscall=emulate is already set in either GRUB_CMDLINE_LINUX_DEFAULT or GRUB_CMDLINE_LINUX
+        if grep -q "vsyscall=emulate" /etc/default/grub; then
+            echo -e "${GREEN}vsyscall=emulate is already set in GRUB configuration.${RC}"
+            STATUS[grub_configured]=false
+        else
+            if grep -q "^GRUB_CMDLINE_LINUX_DEFAULT=" /etc/default/grub; then
+                # Append vsyscall=emulate to GRUB_CMDLINE_LINUX_DEFAULT
+                sudo sed -i 's/\(GRUB_CMDLINE_LINUX_DEFAULT="[^"]*\)"/\1 vsyscall=emulate"/' /etc/default/grub || error_exit "Failed to update GRUB_CMDLINE_LINUX_DEFAULT."
+                echo -e "${GREEN}vsyscall=emulate added to GRUB_CMDLINE_LINUX_DEFAULT.${RC}"
+            elif grep -q "^GRUB_CMDLINE_LINUX=" /etc/default/grub; then
+                # Append vsyscall=emulate to GRUB_CMDLINE_LINUX
+                sudo sed -i 's/\(GRUB_CMDLINE_LINUX="[^"]*\)"/\1 vsyscall=emulate"/' /etc/default/grub || error_exit "Failed to update GRUB_CMDLINE_LINUX."
+                echo -e "${GREEN}vsyscall=emulate added to GRUB_CMDLINE_LINUX.${RC}"
+            else
+                # Neither found, so create GRUB_CMDLINE_LINUX and add vsyscall=emulate
+                echo 'GRUB_CMDLINE_LINUX="vsyscall=emulate"' | sudo tee -a /etc/default/grub || error_exit "Failed to add GRUB_CMDLINE_LINUX."
+                echo -e "${GREEN}GRUB_CMDLINE_LINUX created with vsyscall=emulate.${RC}"
+            fi
+            
+            # Run update-grub and notify the user
+            sudo update-grub || error_exit "Failed to update GRUB."
+            STATUS[grub_configured]=true
+            echo -e "${GREEN}GRUB configuration updated. A system reboot is required for changes to take effect.${RC}"
+        fi
     else
-        echo -e "${RED}Error: PostgreSQL configuration directory not found for version $POSTGRESQLVERSION.${RC}"
+        echo -e "${RED}/etc/default/grub not found. Skipping GRUB configuration.${RC}"
     fi
-fi
-
-# Generate a random database password
-if $CONFIG_SUCCESS; then
-    DBPASS=$(pwgen -s 32 1)
-
-    # Change the postgres user password
-    sudo -u postgres psql -c "ALTER user postgres WITH password '$DBPASS';" || { echo -e "${RED}Error: Failed to set the PostgreSQL password.${RC}"; exit 1; }
-fi
-
-# Get IP address information
-IP=$(ip a | grep -Eo 'inet ([0-9]{1,3}\.){3}[0-9]{1,3}' | grep -Eo '([0-9]{1,3}\.){3}[0-9]{1,3}' | grep -v '127.0.0.1')
-
-# Let the user select or input their IP address
-if [ "$IP" != "" ] ; then
-    echo -e "Select your IP:\n1) IP: $IP\n2) Input other IP"
-    read INVAR
-else
-    INVAR="2"
-fi
-
-if [ "$INVAR" = "2" ]; then
-    echo "Please enter IP:"
-    read IP
-fi
-
-# Select server version
-echo -e "Select the version you want to install.\n1) Yokohiro - V15"
-read AKVERSION
-
-# Download hxsy.zip from Google Drive and extract it
-HXSY_URL="https://drive.google.com/uc?export=download&id=1foqvndDuHwEgixOokU_2rITu1AG-dSv_"
-wget --no-check-certificate -q -O /root/hxsy.zip "$HXSY_URL" && unzip -q /root/hxsy.zip -d /root/ && rm /root/hxsy.zip && DOWNLOAD_SUCCESS=true || { echo -e "${RED}Error: Failed to download or extract hxsy.zip.${RC}"; exit 1; }
-
-# Prepare IP for hex patch
-PATCHIP=$(printf '\\x%02x\\x%02x\\x%02x' $(echo "$IP" | tr '.' ' '))
-
-# Set version name
-VERSIONNAME="NONE"
-
-# Patch files for Yokohiro - V15
-if [ "$AKVERSION" = 1 ] && $DOWNLOAD_SUCCESS; then
-    cd "/root/hxsy" || { echo -e "${RED}Error: Failed to change directory to /root/hxsy.${RC}"; exit 1; }
-
-    # Patch config files
-    sed -i "s/xxxxxxxx/$DBPASS/g" "setup.ini" && \
-    sed -i "s/xxxxxxxx/$DBPASS/g" "GatewayServer/setup.ini" && \
-    sed -i "s/\x44\x24\x0c\x28\x62\x34/\x44\x24\x0c\x08\x49\x40/g" "MissionServer/MissionServer" && \
-    sed -i "s/\x3d\xc0\xa8\x64/\x3d$PATCHIP/g" "WorldServer/WorldServer" && \
-    sed -i "s/\x3d\xc0\xa8\x64/\x3d$PATCHIP/g" "ZoneServer/ZoneServer" && PATCH_SUCCESS=true || PATCH_SUCCESS=false
-
-    if $PATCH_SUCCESS; then
-        sudo -u postgres psql -d FFAccount -c "UPDATE worlds SET ip = '$IP';" || { echo -e "${RED}Error: Failed to update worlds table in FFAccount database.${RC}"; PATCH_SUCCESS=false; }
-        sudo -u postgres psql -d FFDB1 -c "UPDATE serverstatus SET ext_address = '$IP' WHERE ext_address <> '127.0.0.1';" || { echo -e "${RED}Error: Failed to update ext_address in FFDB1 database.${RC}"; PATCH_SUCCESS=false; }
-        sudo -u postgres psql -d FFDB1 -c "UPDATE serverstatus SET int_address = '$IP' WHERE int_address <> '127.0.0.1';" || { echo -e "${RED}Error: Failed to update int_address in FFDB1 database.${RC}"; PATCH_SUCCESS=false; }	
-    fi
-
-    VERSIONNAME="Yokohiro - V15.001.01.16"
-    CREDITS="Horo"
-    THREADLINK="https://forum.ragezone.com/members/yokohiro.311139/"
-fi
-
-# Function to create databases and import SQL files
-create_and_import_db() {
-    DB_NAME=$1
-    SQL_FILE=$2
-
-    # Create the database
-    sudo -u postgres psql -c "CREATE DATABASE $DB_NAME;" || { echo -e "${RED}Error: Failed to create $DB_NAME database.${RC}"; DB_CREATION_SUCCESS=false; }
-
-    # Import the SQL file
-    sudo -u postgres psql -d $DB_NAME -f "/root/hxsy/SQL/$SQL_FILE" || { echo -e "${RED}Error: Failed to import $SQL_FILE into $DB_NAME database.${RC}"; SQL_IMPORT_SUCCESS=false; }
 }
 
-# Create FFAccount, FFDB1, and FFMember databases and import SQL files if PostgreSQL is installed
-if $POSTGRESQL_INSTALLED; then
-    create_and_import_db "FFAccount" "FFAccount.sql"
-    create_and_import_db "FFDB1" "FFDB1.sql"
-    create_and_import_db "FFMember" "FFMember.sql"
-fi
+# Update database IP addresses
+update_database_ips() {
+    echo -e "${BLUE}Updating database IP addresses...${RC}"
+    cd /tmp
+    sudo -H -u "$DB_USER" psql -d "FFAccount" -c "UPDATE worlds SET ip = '$IP';" || error_exit "Failed to update IP in FFAccount database."
+    sudo -H -u "$DB_USER" psql -d "FFDB1" -c "UPDATE serverstatus SET ext_address = '$IP' WHERE ext_address <> '127.0.0.1';" || error_exit "Failed to update ext_address in FFDB1 database."
+    sudo -H -u "$DB_USER" psql -d "FFDB1" -c "UPDATE serverstatus SET int_address = '$IP' WHERE int_address <> '127.0.0.1';" || error_exit "Failed to update int_address in FFDB1 database."
+    echo -e "${GREEN}Database IP addresses updated successfully.${RC}"
+}
 
-# Prompt user for admin account creation
-echo -e "\nAdmin Account Creation"
-echo -n "Username: "
-read ADMIN_USERNAME
-echo -n "Password: "
-read -s ADMIN_PASSWORD
-echo ""
-
-# Create admin account in FFMember, FFAccount, and gm_tool_accounts
-if sudo -u postgres psql -d FFMember -c "INSERT INTO tb_user (mid, password, pwd) VALUES ('$ADMIN_USERNAME', '$ADMIN_PASSWORD', '$(echo -n $ADMIN_PASSWORD | md5sum | cut -d ' ' -f 1)');"; then
-    USER_ID=$(sudo -u postgres psql -At -d FFMember -c "SELECT idnum FROM tb_user WHERE mid = '$ADMIN_USERNAME';")
-    sudo -u postgres psql -d FFAccount -c "INSERT INTO accounts (id, username, password) VALUES ('$USER_ID', '$ADMIN_USERNAME', '$ADMIN_PASSWORD');"
-    sudo -u postgres psql -d FFMember -c "UPDATE tb_user SET pvalues = 999999 WHERE mid = '$ADMIN_USERNAME';"
-
-    # Insert into gm_tool_accounts with $USER_ID
-    sudo -u postgres psql -d FFAccount -c "INSERT INTO gm_tool_accounts (id, account_name, password, privilege) VALUES ('$USER_ID', '$ADMIN_USERNAME', '$ADMIN_PASSWORD', 5);"
-
-    ADMIN_CREATION_SUCCESS=true
+# Create admin account
+create_admin_account() {
+    echo -e "\n${BLUE}Admin Account Creation${RC}"
+    read -p "Username: " ADMIN_USERNAME
+    read -s -p "Password: " ADMIN_PASSWORD
+    echo ""
+    echo -e "${GREEN}Creating admin account...${RC}"
+    ADMIN_PWD_HASH=$(echo -n "$ADMIN_PASSWORD" | md5sum | cut -d ' ' -f1)
+    cd /tmp
+    sudo -H -u "$DB_USER" psql -d "FFMember" -c "INSERT INTO tb_user (mid, password, pwd) VALUES ('$ADMIN_USERNAME', '$ADMIN_PASSWORD', '$ADMIN_PWD_HASH');" || error_exit "Failed to insert into FFMember database."
+    USER_ID=$(sudo -H -u "$DB_USER" psql -At -d "FFMember" -c "SELECT idnum FROM tb_user WHERE mid = '$ADMIN_USERNAME';")
+    sudo -H -u "$DB_USER" psql -d "FFAccount" -c "INSERT INTO accounts (id, username, password) VALUES ('$USER_ID', '$ADMIN_USERNAME', '$ADMIN_PASSWORD');" || error_exit "Failed to insert into FFAccount database."
+    sudo -H -u "$DB_USER" psql -d "FFMember" -c "UPDATE tb_user SET pvalues = 999999 WHERE mid = '$ADMIN_USERNAME';" || error_exit "Failed to update pvalues in FFMember database."
+    sudo -H -u "$DB_USER" psql -d "FFAccount" -c "INSERT INTO gm_tool_accounts (id, account_name, password, privilege) VALUES ('$USER_ID', '$ADMIN_USERNAME', '$ADMIN_PASSWORD', 5);" || error_exit "Failed to insert into gm_tool_accounts."
+    STATUS[admin_creation_success]=true
     echo -e "${GREEN}Admin account '$ADMIN_USERNAME' created successfully.${RC}"
+}
+
+# Main flow
+
+# Detect operating system
+detect_os
+
+# Check kernel version
+check_kernel_version
+
+# Update package lists
+update_packages
+
+# Install all necessary packages
+install_packages
+
+# Install PostgreSQL
+install_postgresql
+
+# Configure PostgreSQL
+configure_postgresql
+
+# Secure PostgreSQL
+secure_postgresql
+
+# Set up firewall rules
+setup_firewall_rules
+
+# Get IP address
+IP=$(hostname -I | awk '{print $1}')
+
+# Download server files
+download_server_files
+
+# Extract server files
+extract_server_files
+
+# Create and import databases
+import_databases
+
+# Patch server files
+patch_server_files
+
+# Configure GRUB for vsyscall
+configure_grub
+
+# Update database IP addresses
+update_database_ips
+
+# Create admin account
+create_admin_account
+
+# Set permissions on server directory
+chmod -R 755 "$INSTALL_DIR"
+
+# Installation result message
+if [ "${STATUS[postgresql_installed]}" = true ] && [ "${STATUS[config_success]}" = true ] && \
+   [ "${STATUS[db_creation_success]}" = true ] && [ "${STATUS[sql_import_success]}" = true ] && \
+   [ "${STATUS[download_success]}" = true ] && [ "${STATUS[patch_success]}" = true ] && \
+   [ "${STATUS[admin_creation_success]}" = true ]; then
+    echo -e "${GREEN}--------------------------------------------------"
+    echo -e "Installation complete!"
+    echo -e "--------------------------------------------------"
+    echo -e "Server IP: $IP"
+    echo -e "PostgreSQL Version: $DB_VERSION"
+    echo -e "Database User: $DB_USER"
+    echo -e "Database Password: $DB_PASS"
+    echo -e "Server Directory: $INSTALL_DIR/"
+    echo -e "To start the server: $INSTALL_DIR/start"
+    echo -e "To stop the server: $INSTALL_DIR/stop"
+    if [ "${STATUS[grub_configured]}" = true ]; then
+        echo -e "\n${RED}IMPORTANT:${RC} A system reboot is required for the GRUB configuration changes to take effect."
+        echo -e "Please reboot your system before starting the server."
+    fi
+    echo -e "${RC}"
 else
-    echo -e "${RED}Error: Failed to create admin account.${RC}"
-fi
-
-# Display info message for setting admin privileges in FFDB1
-if $ADMIN_CREATION_SUCCESS; then
-    echo -e "\n${GREEN}Admin account created successfully!${RC}"
-    echo -e "${GREEN}To grant full admin privileges, after creating a character, please update the 'privilege' column to '5' in the 'player_characters' table of the FFDB1 database.${RC}"
-fi
-
-# Display final installation message with specific checks
-if [ "$VERSIONNAME" = "NONE" ]; then
     echo -e "${RED}--------------------------------------------------"
     echo -e "Installation failed!"
     echo -e "--------------------------------------------------"
     echo -e "Possible reasons:"
-    if ! $POSTGRESQL_INSTALLED; then
-        echo -e "- PostgreSQL installation failed."
-    fi
-    if ! $CONFIG_SUCCESS; then
-        echo -e "- PostgreSQL configuration failed."
-    fi
-    if ! $DOWNLOAD_SUCCESS; then
-        echo -e "- hxsy.zip could not be downloaded or extracted."
-    fi
-    if ! $PATCH_SUCCESS; then
-        echo -e "- File patching failed."
-    fi
-    if ! $DB_CREATION_SUCCESS; then
-        echo -e "- Failed to create one or more databases."
-    fi
-    if ! $SQL_IMPORT_SUCCESS; then
-        echo -e "- Failed to import one or more SQL files into databases."
-    fi
-    echo -e "Please check the error messages above for more details.${RC}"
-else
-    echo -e "$INSTALLER_MSG"
-    echo -e "${GREEN}--------------------------------------------------"
-    echo -e "Installation complete!"
-    echo -e "--------------------------------------------------"
-    echo -e "Server Version: $VERSIONNAME"
-    echo -e "Server IP: $IP"
-    echo -e "PostgreSQL Version: $POSTGRESQLVERSION"
-    echo -e "Database User: postgres"
-    echo -e "Database Password: $DBPASS"
-    echo -e "Server Path: /root/hxsy/"
-    echo -e "PostgreSQL Configuration Path: /etc/postgresql/$POSTGRESQLVERSION/main/"
-    echo -e "Release Info / Client Download: $THREADLINK"
-    echo -e "\nMake sure to thank $CREDITS!"
-    echo -e "\nTo start the server, please use /root/hxsy/start"
-    echo -e "To stop the server, please use /root/hxsy/stop${RC}"
+    [ "${STATUS[postgresql_installed]}" = false ] && echo -e "- PostgreSQL installation failed."
+    [ "${STATUS[config_success]}" = false ] && echo -e "- PostgreSQL configuration failed."
+    [ "${STATUS[download_success]}" = false ] && echo -e "- Server files could not be downloaded or extracted."
+    [ "${STATUS[db_creation_success]}" = false ] && echo -e "- Failed to create databases."
+    [ "${STATUS[sql_import_success]}" = false ] && echo -e "- Failed to import SQL files into databases."
+    [ "${STATUS[patch_success]}" = false ] && echo -e "- File patching failed."
+    [ "${STATUS[admin_creation_success]}" = false ] && echo -e "- Failed to create admin account."
+    echo -e "Please check the error messages above.${RC}"
 fi
