@@ -1,5 +1,7 @@
 Full installation script for Aura Kingdom (Ubuntu, Debian and CentOS)
 
+cd /root && curl -o fullinstaller.sh https://raw.githubusercontent.com/MrDulgan/AKF/main/fullinstaller.sh && chmod +x fullinstaller.sh
+
 - Recognises the operating system and acts accordingly.
 - Lists IP addresses for you to choose from.
 - Checks your kernel version and updates it accordingly.
