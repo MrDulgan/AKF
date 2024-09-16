@@ -95,7 +95,10 @@ install_packages() {
         sudo dnf install -y https://pkgs.dyn.su/el9/base/x86_64/raven-release.el9.noarch.rpm || error_exit "Failed to add Raven repository."
 
         # Install necessary packages including megatools
-        sudo dnf install -y wget pwgen gnupg2 unzip megatools || error_exit "Failed to install necessary packages."
+        sudo dnf install -y wget pwgen gnupg2 unzip megatools vim-common || error_exit "Failed to install necessary packages."
+
+        # Install xxd for binary patching
+        sudo dnf install -y vim-common || error_exit "Failed to install vim-common (for xxd)."
     fi
 }
 
@@ -363,27 +366,20 @@ patch_server_files() {
 
     # Update IP addresses in PostgreSQL database
     sudo -u postgres psql -d FFAccount -c "UPDATE worlds SET ip = '$IP';" || error_exit "Failed to update IP in FFAccount database."
-    sudo -u postgres psql -d FFDB1 -c "UPDATE serverstatus SET ext_address = '$IP' WHERE name != 'MissionServer';" || error_exit "Failed to update external IP in FFDB1 database."
-    sudo -u postgres psql -d FFDB1 -c "UPDATE serverstatus SET int_address = '$IP' WHERE name != 'MissionServer';" || error_exit "Failed to update internal IP in FFDB1 database."
-    sudo -u postgres psql -d FFDB1 -c "UPDATE serverstatus SET ext_address = '\"none\"' WHERE name = 'MissionServer';" || error_exit "Failed to update MissionServer's external IP to 'none' in FFDB1 database."
+    sudo -u postgres psql -d FFDB1 -c "UPDATE serverstatus SET ext_address = '$IP', int_address = '$IP' WHERE name != 'MissionServer';" || error_exit "Failed to update external and internal IPs in FFDB1 database."
+    sudo -u postgres psql -d FFDB1 -c "UPDATE serverstatus SET ext_address = 'none' WHERE name = 'MissionServer';" || error_exit "Failed to update MissionServer's external IP to 'none' in FFDB1 database."
+
+
 
 
     STATUS[patch_success]=true
     echo -e "${GREEN}Server files patched successfully.${RC}"
 }
 
-# Configure GRUB for vsyscall
+# Configure GRUB for vsyscall support
 configure_grub() {
-    KERNEL_VERSION=$(uname -r | cut -d'.' -f1)
-    
-    # Only run this function if kernel version is 6 or higher
-    if [ "$KERNEL_VERSION" -lt 6 ]; then
-        echo -e "${GREEN}Kernel version is less than 6. No need to configure GRUB for vsyscall support.${RC}"
-        return
-    fi
-    
     echo -e "${BLUE}Configuring GRUB for vsyscall support...${RC}"
-    
+
     if [ -f /etc/default/grub ]; then
         # Check if vsyscall=emulate is already set in either GRUB_CMDLINE_LINUX_DEFAULT or GRUB_CMDLINE_LINUX
         if grep -q "vsyscall=emulate" /etc/default/grub; then
@@ -403,16 +399,26 @@ configure_grub() {
                 echo 'GRUB_CMDLINE_LINUX="vsyscall=emulate"' | sudo tee -a /etc/default/grub || error_exit "Failed to add GRUB_CMDLINE_LINUX."
                 echo -e "${GREEN}GRUB_CMDLINE_LINUX created with vsyscall=emulate.${RC}"
             fi
-            
-            # Run update-grub and notify the user
-            sudo update-grub || error_exit "Failed to update GRUB."
-            STATUS[grub_configured]=true
-            echo -e "${GREEN}GRUB configuration updated. A system reboot is required for changes to take effect.${RC}"
         fi
+
+        # Detect the system and update GRUB accordingly
+        if command -v update-grub &> /dev/null; then
+            # For Ubuntu/Debian systems
+            sudo update-grub || error_exit "Failed to update GRUB."
+        elif command -v grub2-mkconfig &> /dev/null; then
+            # For CentOS systems
+            sudo grub2-mkconfig -o /boot/grub2/grub.cfg || error_exit "Failed to update GRUB."
+        else
+            error_exit "GRUB update command not found."
+        fi
+
+        STATUS[grub_configured]=true
+        echo -e "${GREEN}GRUB configuration updated. A system reboot is required for changes to take effect.${RC}"
     else
         echo -e "${RED}/etc/default/grub not found. Skipping GRUB configuration.${RC}"
     fi
 }
+
 
 # Update database IP addresses
 update_database_ips() {
