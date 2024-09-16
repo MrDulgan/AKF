@@ -1,4 +1,4 @@
-Full installation script for Aura Kingdom (Ubuntu, Debian and CentOS)
+## Full installation script for Aura Kingdom (Ubuntu, Debian and CentOS)
 ```sh
 cd /root && curl -o fullinstaller.sh https://raw.githubusercontent.com/MrDulgan/AKF/main/fullinstaller.sh && chmod +x fullinstaller.sh
 ```
