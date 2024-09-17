@@ -363,17 +363,18 @@ patch_server_files() {
     # WorldServer and ZoneServer IP address patch (first 3 bytes)
     sed -i "s/\x3d\xc0\xa8\x64/\x3d$PATCHIP/g" "$INSTALL_DIR/WorldServer/WorldServer" || error_exit "Failed to patch WorldServer."
     sed -i "s/\x3d\xc0\xa8\x64/\x3d$PATCHIP/g" "$INSTALL_DIR/ZoneServer/ZoneServer" || error_exit "Failed to patch ZoneServer."
-
-    # Update IP addresses in PostgreSQL database
-    sudo -u postgres psql -d FFAccount -c "UPDATE worlds SET ip = '$IP';" || error_exit "Failed to update IP in FFAccount database."
-    sudo -u postgres psql -d FFDB1 -c "UPDATE serverstatus SET ext_address = '$IP', int_address = '$IP' WHERE name != 'MissionServer';" || error_exit "Failed to update external and internal IPs in FFDB1 database."
-    sudo -u postgres psql -d FFDB1 -c "UPDATE serverstatus SET ext_address = 'none' WHERE name = 'MissionServer';" || error_exit "Failed to update MissionServer's external IP to 'none' in FFDB1 database."
-
-
-
-
     STATUS[patch_success]=true
     echo -e "${GREEN}Server files patched successfully.${RC}"
+}
+
+# Update database IP addresses
+update_database_ips() {
+    echo -e "${BLUE}Updating database IP addresses...${RC}"
+    cd /tmp
+    sudo -H -u "$DB_USER" psql -d "FFAccount" -c "UPDATE worlds SET ip = '$IP';" || error_exit "Failed to update IP in FFAccount database."
+    sudo -H -u "$DB_USER" psql -d "FFDB1" -c "UPDATE serverstatus SET ext_address = '$IP', int_address = '$IP' WHERE name != 'MissionServer';" || error_exit "Failed to update external and internal IPs in FFDB1 database."
+    sudo -H -u "$DB_USER" psql -d "FFDB1" -c "UPDATE serverstatus SET ext_address = 'none' WHERE name = 'MissionServer';" || error_exit "Failed to update MissionServer's external IP to 'none' in FFDB1 database."
+    echo -e "${GREEN}Database IP addresses updated successfully.${RC}"
 }
 
 # Configure GRUB for vsyscall support
@@ -417,17 +418,6 @@ configure_grub() {
     else
         echo -e "${RED}/etc/default/grub not found. Skipping GRUB configuration.${RC}"
     fi
-}
-
-
-# Update database IP addresses
-update_database_ips() {
-    echo -e "${BLUE}Updating database IP addresses...${RC}"
-    cd /tmp
-    sudo -H -u "$DB_USER" psql -d "FFAccount" -c "UPDATE worlds SET ip = '$IP';" || error_exit "Failed to update IP in FFAccount database."
-    sudo -H -u "$DB_USER" psql -d "FFDB1" -c "UPDATE serverstatus SET ext_address = '$IP' WHERE ext_address <> '127.0.0.1';" || error_exit "Failed to update ext_address in FFDB1 database."
-    sudo -H -u "$DB_USER" psql -d "FFDB1" -c "UPDATE serverstatus SET int_address = '$IP' WHERE int_address <> '127.0.0.1';" || error_exit "Failed to update int_address in FFDB1 database."
-    echo -e "${GREEN}Database IP addresses updated successfully.${RC}"
 }
 
 # Admin creation information message
@@ -500,11 +490,11 @@ remove_sql_directory
 # Patch server files
 patch_server_files
 
-# Configure GRUB for vsyscall
-configure_grub
-
 # Update database IP addresses
 update_database_ips
+
+# Configure GRUB for vsyscall
+configure_grub
 
 # Create admin account
 create_admin_account
