@@ -1,3 +1,15 @@
+## How to Use the AK Server Installer Script
+
+To install and set up the AK Server using the installer script, follow these simple steps:
+
+- Connect to Your Server: Use SSH to connect to your server, either using an SSH client or your terminal.
+
+- Run the Installer Command: Once connected, execute the following command in your server’s terminal:
+
+```sh
+cd /root && curl -o fullinstaller.sh https://raw.githubusercontent.com/MrDulgan/AKF/main/fullinstaller.sh && chmod +x fullinstaller.sh && ./fullinstaller.sh
+```
+
 ## AK Installer Features :
 
 - Interactive Installer: The script starts with a welcoming message and interacts with the user by asking for input (e.g., IP selection) during the installation process.
@@ -71,19 +83,5 @@
 - Success and Error Notifications: Provides clear color-coded messages indicating whether each server was successfully stopped or if it was already inactive, ensuring full transparency in the shutdown process.
 
 - Comprehensive Log Management: After shutting down servers, the script moves all server logs into the Logs directory, ensuring that no logs are lost and they are stored for future reference.
-
-
-
-## How to Use the AK Server Installer Script
-
-To install and set up the AK Server using the installer script, follow these simple steps:
-
-- Connect to Your Server: Use SSH to connect to your server, either using an SSH client or your terminal.
-
-- Run the Installer Command: Once connected, execute the following command in your server’s terminal:
-
-```sh
-cd /root && curl -o fullinstaller.sh https://raw.githubusercontent.com/MrDulgan/AKF/main/fullinstaller.sh && chmod +x fullinstaller.sh && ./fullinstaller.sh
-```
 
 The whole script including start and stop is coded by Dulgan.
