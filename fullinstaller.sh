@@ -67,14 +67,15 @@ select_ip() {
     echo -e "${BLUE}>> Please select an IP address to use:${RC}"
     ips=($(hostname -I))
     for i in "${!ips[@]}"; do
-        echo "   [$((i + 1))] ${ips[$i]}"
+        echo -e "${BLUE}   [$((i + 1))] ${ips[$i]}${RC}"
     done
-    read -p "Enter the number of the IP address: " ip_choice
+    read -p "$(echo -e ${BLUE}Enter the number of the IP address: ${RC})" ip_choice
     IP=${ips[$((ip_choice - 1))]}
     if [[ -z "$IP" ]]; then
-        error_exit "Invalid IP selection."
+        echo -e "${RED}Invalid IP selection.${RC}"
+        exit 1
     fi
-    echo -e "${GREEN}>> Selected IP: $IP${RC}"
+    echo -e "${BLUE}>> Selected IP: $IP${RC}"
 }
 
 # Check the kernel version
@@ -234,11 +235,11 @@ setup_firewall_rules() {
             if sudo ufw status | grep -qw "$port"; then
                 echo -e "${BLUE}   - Port $port is already allowed in UFW.${RC}"
             else
-                sudo ufw allow "$port"/tcp || error_exit "Failed to allow port $port in UFW."
+                sudo ufw allow "$port"/tcp >/dev/null 2>&1 || error_exit "Failed to allow port $port in UFW."
                 echo -e "${GREEN}   - Port $port allowed in UFW.${RC}"
             fi
         done
-        sudo ufw reload || error_exit "Failed to reload UFW."
+        sudo ufw reload >/dev/null 2>&1 || error_exit "Failed to reload UFW."
     elif [ -x "$(command -v firewall-cmd)" ]; then
         echo -e "${GREEN}>> Configuring Firewalld firewall...${RC}"
         sudo firewall-cmd --permanent --add-service=ssh >/dev/null 2>&1
@@ -246,11 +247,11 @@ setup_firewall_rules() {
             if sudo firewall-cmd --list-ports | grep -qw "$port/tcp"; then
                 echo -e "${BLUE}   - Port $port is already allowed in Firewalld.${RC}"
             else
-                sudo firewall-cmd --permanent --add-port="$port"/tcp || error_exit "Failed to allow port $port in Firewalld."
+                sudo firewall-cmd --permanent --add-port="$port"/tcp >/dev/null 2>&1 || error_exit "Failed to allow port $port in Firewalld."
                 echo -e "${GREEN}   - Port $port allowed in Firewalld.${RC}"
             fi
         done
-        sudo firewall-cmd --reload || error_exit "Failed to reload Firewalld."
+        sudo firewall-cmd --reload >/dev/null 2>&1 || error_exit "Failed to reload Firewalld."
     else
         echo -e "${YELLOW}[Notice] No supported firewall detected. Please configure your firewall manually.${RC}"
     fi
@@ -260,23 +261,23 @@ setup_firewall_rules() {
 # Handle existing INSTALL_DIR
 handle_existing_install_dir() {
     if [ -d "$INSTALL_DIR" ]; then
-        echo -e "${YELLOW}[Notice] The directory $INSTALL_DIR already exists.${RC}"
-        echo -e "What would you like to do?"
-        echo -e "   [1] Delete the existing directory and proceed."
-        echo -e "   [2] Rename the existing directory by appending '-old' and proceed."
-        read -p "Enter your choice [1/2]: " dir_choice
+        echo -e "${BLUE}[Notice] The directory $INSTALL_DIR already exists.${RC}"
+        echo -e "${BLUE}What would you like to do?${RC}"
+        echo -e "${BLUE}   [1] Delete the existing directory and proceed.${RC}"
+        echo -e "${BLUE}   [2] Rename the existing directory by appending '-old' and proceed.${RC}"
+        read -p "$(echo -e ${BLUE}Enter your choice [1/2]: ${RC})" dir_choice
         if [ "$dir_choice" = "1" ]; then
             echo -e "${BLUE}>> Deleting existing directory $INSTALL_DIR...${RC}"
-            rm -rf "$INSTALL_DIR" || error_exit "Failed to delete $INSTALL_DIR."
+            rm -rf "$INSTALL_DIR" || error_exit "${RED}Failed to delete $INSTALL_DIR.${RC}"
             echo -e "${GREEN}>> Directory deleted.${RC}"
         elif [ "$dir_choice" = "2" ]; then
             timestamp=$(date +%Y%m%d%H%M%S)
             new_dir="${INSTALL_DIR}-old-$timestamp"
             echo -e "${BLUE}>> Renaming $INSTALL_DIR to $new_dir...${RC}"
-            mv "$INSTALL_DIR" "$new_dir" || error_exit "Failed to rename $INSTALL_DIR."
+            mv "$INSTALL_DIR" "$new_dir" || error_exit "${RED}Failed to rename $INSTALL_DIR.${RC}"
             echo -e "${GREEN}>> Directory renamed to $new_dir.${RC}"
         else
-            error_exit "Invalid choice. Please run the script again and select a valid option."
+            error_exit "${RED}Invalid choice. Please run the script again and select a valid option.${RC}"
         fi
     fi
 }
@@ -284,7 +285,7 @@ handle_existing_install_dir() {
 # Download server files
 download_server_files() {
     echo -e "${BLUE}>> Downloading server files...${RC}"
-    megadl "$DOWNLOAD_URL" --path "/root/hxsy.zip" || error_exit "Failed to download hxsy.zip."
+    megadl "$DOWNLOAD_URL" --path "/root/hxsy.zip" > /dev/null 2>&1 || error_exit "Failed to download hxsy.zip."
     if [ -f "/root/hxsy.zip" ]; then
         STATUS[download_success]=true
         echo -e "${GREEN}>> Server files downloaded.${RC}"
@@ -416,8 +417,9 @@ configure_grub() {
 
     if [ -f /etc/default/grub ]; then
         if grep -q "vsyscall=emulate" /etc/default/grub; then
-            echo -e "${GREEN}>> vsyscall=emulate is already set in GRUB configuration.${RC}"
+            echo -e "${GREEN}>> vsyscall=emulate is already set in GRUB configuration. Skipping.${RC}"
             STATUS[grub_configured]=false
+            return
         else
             if grep -q "^GRUB_CMDLINE_LINUX_DEFAULT=" /etc/default/grub; then
                 sudo sed -i 's/\(GRUB_CMDLINE_LINUX_DEFAULT="[^"]*\)"/\1 vsyscall=emulate"/' /etc/default/grub || error_exit "Failed to update GRUB_CMDLINE_LINUX_DEFAULT."
@@ -429,18 +431,18 @@ configure_grub() {
                 echo 'GRUB_CMDLINE_LINUX="vsyscall=emulate"' | sudo tee -a /etc/default/grub || error_exit "Failed to add GRUB_CMDLINE_LINUX."
                 echo -e "${GREEN}>> GRUB_CMDLINE_LINUX created with vsyscall=emulate.${RC}"
             fi
-        fi
 
-        if command -v update-grub &> /dev/null; then
-            sudo update-grub || error_exit "Failed to update GRUB."
-        elif command -v grub2-mkconfig &> /dev/null; then
-            sudo grub2-mkconfig -o /boot/grub2/grub.cfg || error_exit "Failed to update GRUB."
-        else
-            error_exit "GRUB update command not found."
-        fi
+            if command -v update-grub &> /dev/null; then
+                sudo update-grub > /dev/null 2>&1 || error_exit "Failed to update GRUB."
+            elif command -v grub2-mkconfig &> /dev/null; then
+                sudo grub2-mkconfig -o /boot/grub2/grub.cfg > /dev/null 2>&1 || error_exit "Failed to update GRUB."
+            else
+                error_exit "GRUB update command not found."
+            fi
 
-        STATUS[grub_configured]=true
-        echo -e "${GREEN}>> GRUB configuration updated. A system reboot is required for changes to take effect.${RC}"
+            STATUS[grub_configured]=true
+            echo -e "${GREEN}>> GRUB configuration updated. A system reboot is required for changes to take effect.${RC}"
+        fi
     else
         echo -e "${YELLOW}[Notice] /etc/default/grub not found. Skipping GRUB configuration.${RC}"
     fi
