@@ -29,7 +29,7 @@ DB_VERSION=13
 DB_USER='postgres'
 DB_PASS=''
 INSTALL_DIR='/root/hxsy'
-DOWNLOAD_URL='https://mega.nz/file/T75VTTqC#S8Ou186bqyNeIQKlUm4MV5gS7A_YBbz_wauCEY7sLOs'
+DOWNLOAD_URL='https://mega.nz/file/z6AyGIaA#1OXGc4amedlwtNvknc-KC9im_B9nh0FeXO1Ns51Fvr0'
 
 # Operation status variables
 declare -A STATUS=(
