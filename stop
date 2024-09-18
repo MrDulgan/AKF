@@ -1,0 +1,111 @@
+#!/bin/bash
+
+# Color codes
+GREEN='\e[1;32m'
+BLUE='\e[0;36m'
+RED='\e[0;31m'
+NC='\e[0m' # No Color
+
+# Installation directory
+INSTALL_DIR="/root/hxsy"
+LOG_DIR="$INSTALL_DIR/Logs"
+CURRENT_DATE=$(date +%Y-%m-%d)
+
+# Introductory message
+echo -e "${BLUE}=================================================="
+echo -e "             AK Server Stop Script                "
+echo -e "                Developer: Dulgan                 "
+echo -e "==================================================${NC}"
+
+# Ensure the log directory exists
+if [ ! -d "$LOG_DIR" ]; then
+    mkdir -p "$LOG_DIR"
+    echo -e "${GREEN}>> Log directory created: $LOG_DIR${NC}"
+else
+    echo -e "${BLUE}>> Log directory exists: $LOG_DIR${NC}"
+fi
+
+# Function to clear system logs
+clear_system_logs() {
+    echo -e "${BLUE}>> Clearing system logs...${NC}"
+
+    # List of system log files to clear
+    SYS_LOGS=(
+        "/var/log/syslog"
+        "/var/log/wtmp"
+        "/var/log/maillog"
+        "/var/log/messages"
+        "/var/log/openwebmail.log"
+        "/var/log/secure"
+    )
+
+    # Clear each log file if it exists
+    for log_file in "${SYS_LOGS[@]}"; do
+        if [ -f "$log_file" ]; then
+            > "$log_file"
+            echo -e "${GREEN}>> Cleared: $log_file${NC}"
+        else
+            echo -e "${RED}>> File not found: $log_file${NC}"
+        fi
+    done
+
+    echo -e "${GREEN}>> System logs cleared.${NC}"
+}
+
+# Function to clear old logs in the Logs directory, excluding the Startup folder
+clear_old_logs() {
+    echo -e "${BLUE}>> Clearing old logs in $LOG_DIR, excluding 'Startup' folder...${NC}"
+
+    # Find and delete all files and directories except 'Startup'
+    find "$LOG_DIR" -mindepth 1 -maxdepth 1 ! -name 'Startup' -exec rm -rf {} +
+
+    echo -e "${GREEN}>> Old logs cleared from $LOG_DIR.${NC}"
+}
+
+# Function to move server logs
+move_server_logs() {
+    local server_name="$1"
+
+    # Find and move log files
+    find "$INSTALL_DIR/$server_name" -type f -name "*.log.*" -print0 | while IFS= read -r -d '' log_file; do
+        base_log_file=$(basename "$log_file")
+        mv "$log_file" "$LOG_DIR/${server_name}_${CURRENT_DATE}_${base_log_file}"
+    done
+}
+
+# Function to stop servers
+stop_server() {
+    local server_name="$1"
+    echo -e "${BLUE}>> Stopping $server_name...${NC}"
+    pkill -f "$server_name" 2>/dev/null
+    if [ $? -eq 0 ]; then
+        echo -e "${GREEN}>> $server_name stopped successfully.${NC}"
+    else
+        echo -e "${RED}>> $server_name was not running or failed to stop.${NC}"
+    fi
+}
+
+# List of servers to stop in reverse order
+SERVERS=(
+    "ZoneServer"
+    "WorldServer"
+    "MissionServer"
+    "LoginServer"
+    "GatewayServer"
+    "TicketServer"
+)
+
+# Clear system logs
+clear_system_logs
+
+# Clear old logs, excluding 'Startup' folder
+clear_old_logs
+
+# Stop servers and process their logs in reverse order
+for server in "${SERVERS[@]}"; do
+    stop_server "$server"
+    move_server_logs "$server"
+done
+
+echo -e "${BLUE}>> All logs have been moved to: $LOG_DIR${NC}"
+echo -e "${GREEN}>> All servers have been stopped.${NC}"
