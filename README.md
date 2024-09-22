@@ -16,7 +16,7 @@ cd /root && curl -o fullinstaller.sh https://raw.githubusercontent.com/MrDulgan/
 
 - **Supports Debian and CentOS:** Automatically detects if the system is running Debian or CentOS, and adjusts package management and installation commands accordingly.
 
-- Automatic Locale Configuration: It installs the appropriate packages (locales for Debian, glibc-langpack-en for CentOS) and generates required locales (en_US.UTF-8, POSIX, etc.) based on the detected operating system, ensuring compatibility and proper locale configuration.
+- **Automatic Locale Configuration:** It installs the appropriate packages (locales for Debian, glibc-langpack-en for CentOS) and generates required locales (en_US.UTF-8, POSIX, etc.) based on the detected operating system, ensuring compatibility and proper locale configuration.
 
 - **Kernel Version Compatibility Warning:** Notifies users if the kernel version is 6.x or higher, recommending downgrading to 5.x for better compatibility with the server binaries.
 
