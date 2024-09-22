@@ -62,6 +62,67 @@ detect_os() {
     fi
 }
 
+# Configure locales
+configure_locales() {
+    echo -e "${BLUE}>> Configuring locales...${RC}"
+    
+    # Define required locales
+    REQUIRED_LOCALES=(
+        "en_US.UTF-8"
+        "POSIX"
+        "C"
+    )
+    
+    if [ "$OS" = 'Debian' ]; then
+        # Check if locales package is installed
+        if ! dpkg -l | grep -qw locales; then
+            echo -e "${BLUE}>> Installing 'locales' package...${RC}"
+            sudo apt-get -qq install -y locales || error_exit "Failed to install 'locales' package."
+        else
+            echo -e "${GREEN}>> 'locales' package is already installed.${RC}"
+        fi
+        
+        # Backup locale.gen before modifying
+        sudo cp /etc/locale.gen /etc/locale.gen.bak || error_exit "Failed to backup /etc/locale.gen."
+        
+        # Uncomment required locales in /etc/locale.gen
+        for locale in "${REQUIRED_LOCALES[@]}"; do
+            if ! grep -q "^# *$locale " /etc/locale.gen; then
+                echo -e "${YELLOW}>> Locale $locale is already uncommented.${RC}"
+            else
+                echo -e "${BLUE}>> Enabling locale $locale...${RC}"
+                sudo sed -i "s/^# *\($locale\)/\1/" /etc/locale.gen || error_exit "Failed to uncomment $locale in /etc/locale.gen."
+            fi
+        done
+        
+        # Generate locales
+        echo -e "${BLUE}>> Generating locales...${RC}"
+        sudo locale-gen || error_exit "Failed to generate locales."
+        
+    elif [ "$OS" = 'CentOS' ]; then
+        # For CentOS, ensure glibc-langpack-en is installed for en_US.UTF-8
+        if ! rpm -qa | grep -qw glibc-langpack-en; then
+            echo -e "${BLUE}>> Installing 'glibc-langpack-en' package...${RC}"
+            sudo yum -q -y install glibc-langpack-en || error_exit "Failed to install 'glibc-langpack-en' package."
+        else
+            echo -e "${GREEN}>> 'glibc-langpack-en' package is already installed.${RC}"
+        fi
+        
+        # Check if en_US.UTF-8 locale is generated
+        if ! locale -a | grep -qw "en_US.utf8"; then
+            echo -e "${BLUE}>> Generating locale en_US.UTF-8...${RC}"
+            sudo localedef -i en_US -f UTF-8 en_US.UTF-8 || error_exit "Failed to generate en_US.UTF-8 locale."
+        else
+            echo -e "${GREEN}>> Locale en_US.UTF-8 is already generated.${RC}"
+        fi
+        
+        # Ensure POSIX and C locales are available (they should be by default)
+        # No additional steps required for POSIX and C
+    fi
+    
+    echo -e "${GREEN}>> Locale configuration completed.${RC}"
+}
+
 # Select IP address function
 select_ip() {
     echo -e "${BLUE}>> Please select an IP address to use:${RC}"
@@ -477,6 +538,7 @@ create_admin_account() {
 
 # Main flow
 detect_os
+configure_locales
 select_ip
 check_kernel_version
 update_packages
