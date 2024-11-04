@@ -62,49 +62,14 @@ detect_os() {
     fi
 }
 
-# Function to check and install required commands
-check_and_install_commands() {
-    REQUIRED_COMMANDS=("sudo" "wget" "pwgen" "gnupg" "unzip" "megatools" "xxd" "psql")
-    MISSING_COMMANDS=()
-
-    echo -e "${BLUE}>> Checking for required commands...${RC}"
-
-    for cmd in "${REQUIRED_COMMANDS[@]}"; do
-        if ! command -v "$cmd" &> /dev/null; then
-            echo -e "${YELLOW}   - Command '$cmd' is missing.${RC}"
-            MISSING_COMMANDS+=("$cmd")
-        else
-            echo -e "${GREEN}   - Command '$cmd' is available.${RC}"
-        fi
-    done
-
-    if [ "${#MISSING_COMMANDS[@]}" -ne 0 ]; then
-        echo -e "${BLUE}>> Installing missing commands...${RC}"
-        if [ "$PKG_MANAGER" = 'apt-get' ]; then
-            sudo apt-get -qq update || error_exit "Failed to update package lists."
-            for cmd in "${MISSING_COMMANDS[@]}"; do
-                if [ "$cmd" = "psql" ]; then
-                    sudo apt-get -qq install -y "postgresql-$DB_VERSION" || error_exit "Failed to install PostgreSQL."
-                elif [ "$cmd" = "xxd" ]; then
-                    sudo apt-get -qq install -y xxd || error_exit "Failed to install xxd."
-                else
-                    sudo apt-get -qq install -y "$cmd" || error_exit "Failed to install $cmd."
-                fi
-            done
-        elif [ "$PKG_MANAGER" = 'yum' ]; then
-            sudo yum -q -y update || error_exit "Failed to update package lists."
-            for cmd in "${MISSING_COMMANDS[@]}"; do
-                if [ "$cmd" = "psql" ]; then
-                    sudo yum -q -y install "postgresql$DB_VERSION-server" "postgresql$DB_VERSION-contrib" || error_exit "Failed to install PostgreSQL."
-                elif [ "$cmd" = "xxd" ]; then
-                    sudo yum -q -y install vim-common || error_exit "Failed to install xxd (vim-common)."
-                else
-                    sudo yum -q -y install "$cmd" || error_exit "Failed to install $cmd."
-                fi
-            done
-        fi
+# Function to check for 'sudo' command
+check_sudo_command() {
+    echo -e "${BLUE}>> Checking for 'sudo' command...${RC}"
+    if ! command -v sudo &> /dev/null; then
+        echo -e "${RED}[ERROR] 'sudo' command is missing. Please install 'sudo' and run the script again.${RC}"
+        exit 1
     else
-        echo -e "${GREEN}>> All required commands are already installed.${RC}"
+        echo -e "${GREEN}>> 'sudo' command is available.${RC}"
     fi
 }
 
@@ -230,6 +195,48 @@ check_and_install_xxd() {
         fi
     else
         echo -e "${GREEN}>> xxd is already installed.${RC}"
+    fi
+}
+
+# Function to check and install required commands
+check_and_install_commands() {
+    REQUIRED_COMMANDS=("wget" "pwgen" "gnupg" "unzip" "megatools" "xxd")
+    MISSING_COMMANDS=()
+
+    echo -e "${BLUE}>> Checking for required commands...${RC}"
+
+    for cmd in "${REQUIRED_COMMANDS[@]}"; do
+        if ! command -v "$cmd" &> /dev/null; then
+            echo -e "${YELLOW}   - Command '$cmd' is missing.${RC}"
+            MISSING_COMMANDS+=("$cmd")
+        else
+            echo -e "${GREEN}   - Command '$cmd' is available.${RC}"
+        fi
+    done
+
+    if [ "${#MISSING_COMMANDS[@]}" -ne 0 ]; then
+        echo -e "${BLUE}>> Installing missing commands...${RC}"
+        if [ "$PKG_MANAGER" = 'apt-get' ]; then
+            sudo apt-get -qq update || error_exit "Failed to update package lists."
+            for cmd in "${MISSING_COMMANDS[@]}"; do
+                if [ "$cmd" = "xxd" ]; then
+                    sudo apt-get -qq install -y xxd || error_exit "Failed to install xxd."
+                else
+                    sudo apt-get -qq install -y "$cmd" || error_exit "Failed to install $cmd."
+                fi
+            done
+        elif [ "$PKG_MANAGER" = 'yum' ]; then
+            sudo yum -q -y update || error_exit "Failed to update package lists."
+            for cmd in "${MISSING_COMMANDS[@]}"; do
+                if [ "$cmd" = "xxd" ]; then
+                    sudo yum -q -y install vim-common || error_exit "Failed to install xxd (vim-common)."
+                else
+                    sudo yum -q -y install "$cmd" || error_exit "Failed to install $cmd."
+                fi
+            done
+        fi
+    else
+        echo -e "${GREEN}>> All required commands are already installed.${RC}"
     fi
 }
 
@@ -584,13 +591,14 @@ create_admin_account() {
 
 # Main flow
 detect_os
-check_and_install_commands
+check_sudo_command
 configure_locales
 select_ip
 check_kernel_version
 update_packages
 install_packages
 check_and_install_xxd
+check_and_install_commands
 check_postgresql_version
 install_postgresql
 configure_postgresql
