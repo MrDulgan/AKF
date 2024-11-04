@@ -62,6 +62,52 @@ detect_os() {
     fi
 }
 
+# Function to check and install required commands
+check_and_install_commands() {
+    REQUIRED_COMMANDS=("sudo" "wget" "pwgen" "gnupg" "unzip" "megatools" "xxd" "psql")
+    MISSING_COMMANDS=()
+
+    echo -e "${BLUE}>> Checking for required commands...${RC}"
+
+    for cmd in "${REQUIRED_COMMANDS[@]}"; do
+        if ! command -v "$cmd" &> /dev/null; then
+            echo -e "${YELLOW}   - Command '$cmd' is missing.${RC}"
+            MISSING_COMMANDS+=("$cmd")
+        else
+            echo -e "${GREEN}   - Command '$cmd' is available.${RC}"
+        fi
+    done
+
+    if [ "${#MISSING_COMMANDS[@]}" -ne 0 ]; then
+        echo -e "${BLUE}>> Installing missing commands...${RC}"
+        if [ "$PKG_MANAGER" = 'apt-get' ]; then
+            sudo apt-get -qq update || error_exit "Failed to update package lists."
+            for cmd in "${MISSING_COMMANDS[@]}"; do
+                if [ "$cmd" = "psql" ]; then
+                    sudo apt-get -qq install -y "postgresql-$DB_VERSION" || error_exit "Failed to install PostgreSQL."
+                elif [ "$cmd" = "xxd" ]; then
+                    sudo apt-get -qq install -y xxd || error_exit "Failed to install xxd."
+                else
+                    sudo apt-get -qq install -y "$cmd" || error_exit "Failed to install $cmd."
+                fi
+            done
+        elif [ "$PKG_MANAGER" = 'yum' ]; then
+            sudo yum -q -y update || error_exit "Failed to update package lists."
+            for cmd in "${MISSING_COMMANDS[@]}"; do
+                if [ "$cmd" = "psql" ]; then
+                    sudo yum -q -y install "postgresql$DB_VERSION-server" "postgresql$DB_VERSION-contrib" || error_exit "Failed to install PostgreSQL."
+                elif [ "$cmd" = "xxd" ]; then
+                    sudo yum -q -y install vim-common || error_exit "Failed to install xxd (vim-common)."
+                else
+                    sudo yum -q -y install "$cmd" || error_exit "Failed to install $cmd."
+                fi
+            done
+        fi
+    else
+        echo -e "${GREEN}>> All required commands are already installed.${RC}"
+    fi
+}
+
 # Configure locales
 configure_locales() {
     echo -e "${BLUE}>> Configuring locales...${RC}"
@@ -538,6 +584,7 @@ create_admin_account() {
 
 # Main flow
 detect_os
+check_and_install_commands
 configure_locales
 select_ip
 check_kernel_version
