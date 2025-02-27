@@ -51,14 +51,22 @@ error_exit() {
 
 # Detect the operating system and set the package manager
 detect_os() {
-    if [ -f /etc/debian_version ]; then
-        OS='Debian'
-        PKG_MANAGER='apt-get'
-    elif [ -f /etc/centos-release ] || [ -f /etc/redhat-release ]; then
-        OS='CentOS'
-        PKG_MANAGER='yum'
+    if [ -f /etc/os-release ]; then
+        . /etc/os-release
+        if [[ "$ID" == "ubuntu" ]]; then
+            OS="Ubuntu"
+            PKG_MANAGER="apt-get"
+        elif [[ "$ID" == "debian" ]]; then
+            OS="Debian"
+            PKG_MANAGER="apt-get"
+        elif [ -f /etc/centos-release ] || [ -f /etc/redhat-release ]; then
+            OS="CentOS"
+            PKG_MANAGER="yum"
+        else
+            error_exit "Unsupported operating system. This script supports Debian, Ubuntu, and CentOS."
+        fi
     else
-        error_exit "Unsupported operating system. This script supports Debian and CentOS."
+        error_exit "Unable to detect operating system."
     fi
 }
 
@@ -84,19 +92,14 @@ configure_locales() {
         "C"
     )
     
-    if [ "$OS" = 'Debian' ]; then
-        # Check if locales package is installed
+    if [ "$OS" = 'Debian' ] || [ "$OS" = 'Ubuntu' ]; then
         if ! dpkg -l | grep -qw locales; then
             echo -e "${BLUE}>> Installing 'locales' package...${RC}"
             sudo apt-get -qq install -y locales || error_exit "Failed to install 'locales' package."
         else
             echo -e "${GREEN}>> 'locales' package is already installed.${RC}"
         fi
-        
-        # Backup locale.gen before modifying
         sudo cp /etc/locale.gen /etc/locale.gen.bak || error_exit "Failed to backup /etc/locale.gen."
-        
-        # Uncomment required locales in /etc/locale.gen
         for locale in "${REQUIRED_LOCALES[@]}"; do
             if ! grep -q "^# *$locale " /etc/locale.gen; then
                 echo -e "${YELLOW}>> Locale $locale is already uncommented.${RC}"
@@ -105,33 +108,43 @@ configure_locales() {
                 sudo sed -i "s/^# *\($locale\)/\1/" /etc/locale.gen || error_exit "Failed to uncomment $locale in /etc/locale.gen."
             fi
         done
-        
-        # Generate locales
         echo -e "${BLUE}>> Generating locales...${RC}"
         sudo locale-gen || error_exit "Failed to generate locales."
         
     elif [ "$OS" = 'CentOS' ]; then
-        # For CentOS, ensure glibc-langpack-en is installed for en_US.UTF-8
         if ! rpm -qa | grep -qw glibc-langpack-en; then
             echo -e "${BLUE}>> Installing 'glibc-langpack-en' package...${RC}"
             sudo yum -q -y install glibc-langpack-en || error_exit "Failed to install 'glibc-langpack-en' package."
         else
             echo -e "${GREEN}>> 'glibc-langpack-en' package is already installed.${RC}"
         fi
-        
-        # Check if en_US.UTF-8 locale is generated
         if ! locale -a | grep -qw "en_US.utf8"; then
             echo -e "${BLUE}>> Generating locale en_US.UTF-8...${RC}"
             sudo localedef -i en_US -f UTF-8 en_US.UTF-8 || error_exit "Failed to generate en_US.UTF-8 locale."
         else
             echo -e "${GREEN}>> Locale en_US.UTF-8 is already generated.${RC}"
         fi
-        
-        # Ensure POSIX and C locales are available (they should be by default)
-        # No additional steps required for POSIX and C
     fi
     
     echo -e "${GREEN}>> Locale configuration completed.${RC}"
+}
+
+# Install Ubuntu compatibility libraries
+install_ubuntu_dependencies() {
+    echo -e "${BLUE}>> Installing Ubuntu compatibility libraries...${RC}"
+    sudo apt-get -qq install -y libc6-i386 lib32gcc-s1 lib32stdc++6 || error_exit "Failed to install Ubuntu compatibility libraries."
+    echo -e "${GREEN}>> Ubuntu compatibility libraries installed successfully.${RC}"
+}
+
+# Install CentOS compatibility libraries
+install_centos_dependencies() {
+    echo -e "${BLUE}>> Installing CentOS compatibility libraries...${RC}"
+    if command -v dnf &> /dev/null; then
+         sudo dnf install -y glibc.i686 libstdc++.i686 compat-libstdc++-33 || error_exit "Failed to install CentOS compatibility libraries."
+    else
+         sudo yum -q -y install glibc.i686 libstdc++.i686 compat-libstdc++-33 || error_exit "Failed to install CentOS compatibility libraries."
+    fi
+    echo -e "${GREEN}>> CentOS compatibility libraries installed successfully.${RC}"
 }
 
 # Select IP address function
@@ -279,12 +292,11 @@ install_postgresql() {
 
     echo -e "${BLUE}>> Installing PostgreSQL $DB_VERSION...${RC}"
 
-    if [ "$OS" = 'Debian' ]; then
+    if [ "$OS" = 'Debian' ] || [ "$OS" = 'Ubuntu' ]; then
         wget -qO - https://www.postgresql.org/media/keys/ACCC4CF8.asc | sudo apt-key add - || error_exit "Failed to add PostgreSQL GPG key."
         echo "deb http://apt.postgresql.org/pub/repos/apt/ $(lsb_release -cs)-pgdg main" | sudo tee /etc/apt/sources.list.d/pgdg.list
         sudo apt-get -qq update || error_exit "Failed to update package lists."
         sudo apt-get -qq install -y "postgresql-$DB_VERSION" || error_exit "Failed to install PostgreSQL."
-
     elif [ "$OS" = 'CentOS' ]; then
         echo -e "${BLUE}>> Adding PostgreSQL repository...${RC}"
         sudo dnf install -y https://download.postgresql.org/pub/repos/yum/reporpms/EL-9-x86_64/pgdg-redhat-repo-latest.noarch.rpm || error_exit "Failed to add PostgreSQL repository."
@@ -307,7 +319,7 @@ install_postgresql() {
 configure_postgresql() {
     echo -e "${BLUE}>> Configuring PostgreSQL...${RC}"
 
-    if [ "$OS" = 'Debian' ]; then
+    if [ "$OS" = 'Debian' ] || [ "$OS" = 'Ubuntu' ]; then
         PG_CONF="/etc/postgresql/$DB_VERSION/main/postgresql.conf"
         PG_HBA="/etc/postgresql/$DB_VERSION/main/pg_hba.conf"
         SERVICE_NAME="postgresql"
@@ -487,7 +499,6 @@ patch_server_files() {
 
         if [[ -f "$binary_file" ]]; then
             current_value=$(xxd -seek $offset -l 4 -ps "$binary_file")
-
             if [[ "$current_value" == "$original_value" ]]; then
                 echo -e "${BLUE}   - Original value found in $binary_file at offset $offset. Patching...${RC}"
                 printf "$new_value" | dd of="$binary_file" bs=1 seek=$offset conv=notrunc >/dev/null 2>&1 || error_exit "Failed to patch $binary_file at offset $offset."
@@ -507,7 +518,6 @@ patch_server_files() {
     patch_mission_server "$INSTALL_DIR/MissionServer/MissionServer" "$offset" "$original_value" "$new_value"
 
     echo -e "${BLUE}>> Patching binary IP addresses...${RC}"
-
     sed -i "s/\x44\x24\x0c\x28\x62\x34/\x44\x24\x0c\x08\x49\x40/g" "$INSTALL_DIR/MissionServer/MissionServer" || error_exit "Failed to patch MissionServer."
     sed -i "s/\x3d\xc0\xa8\x64/\x3d$PATCHIP/g" "$INSTALL_DIR/WorldServer/WorldServer" || error_exit "Failed to patch WorldServer."
     sed -i "s/\x3d\xc0\xa8\x64/\x3d$PATCHIP/g" "$INSTALL_DIR/ZoneServer/ZoneServer" || error_exit "Failed to patch ZoneServer."
@@ -528,7 +538,6 @@ update_database_ips() {
 # Configure GRUB for vsyscall support
 configure_grub() {
     echo -e "${BLUE}>> Configuring GRUB for vsyscall support...${RC}"
-
     if [ -f /etc/default/grub ]; then
         if grep -q "vsyscall=emulate" /etc/default/grub; then
             echo -e "${GREEN}>> vsyscall=emulate is already set in GRUB configuration. Skipping.${RC}"
@@ -545,7 +554,6 @@ configure_grub() {
                 echo 'GRUB_CMDLINE_LINUX="vsyscall=emulate"' | sudo tee -a /etc/default/grub || error_exit "Failed to add GRUB_CMDLINE_LINUX."
                 echo -e "${GREEN}>> GRUB_CMDLINE_LINUX created with vsyscall=emulate.${RC}"
             fi
-
             if command -v update-grub &> /dev/null; then
                 sudo update-grub > /dev/null 2>&1 || error_exit "Failed to update GRUB."
             elif command -v grub2-mkconfig &> /dev/null; then
@@ -553,7 +561,6 @@ configure_grub() {
             else
                 error_exit "GRUB update command not found."
             fi
-
             STATUS[grub_configured]=true
             echo -e "${GREEN}>> GRUB configuration updated. A system reboot is required for changes to take effect.${RC}"
         fi
@@ -596,6 +603,11 @@ configure_locales
 select_ip
 check_kernel_version
 update_packages
+if [ "$OS" = "Ubuntu" ]; then
+    install_ubuntu_dependencies
+elif [ "$OS" = "CentOS" ]; then
+    install_centos_dependencies
+fi
 install_packages
 check_and_install_xxd
 check_and_install_commands
