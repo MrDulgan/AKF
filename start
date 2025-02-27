@@ -10,45 +10,31 @@ NC='\e[0m' # No Color
 INSTALL_DIR="/root/hxsy"
 
 # Set locale
-LC_CTYPE="POSIX"
-LC_NUMERIC=en_US.UTF-8
-LC_TIME="POSIX"
-LC_COLLATE="POSIX"
-LC_MONETARY="POSIX"
-LC_MESSAGES="POSIX"
-LC_PAPER="POSIX"
-LC_NAME="POSIX"
-LC_ADDRESS="POSIX"
-LC_TELEPHONE="POSIX"
-LC_MEASUREMENT="POSIX"
-LC_IDENTIFICATION="POSIX"
 export LC_ALL=C
 
 # Ensure the Startup directory inside Logs exists
-if [ ! -d "$INSTALL_DIR/Logs/Startup" ]; then
-    mkdir -p "$INSTALL_DIR/Logs/Startup"
-    echo -e "${GREEN}>> Startup directory created: $INSTALL_DIR/Logs/Startup${NC}"
+LOG_DIR="$INSTALL_DIR/Logs/Startup"
+if [ ! -d "$LOG_DIR" ]; then
+    mkdir -p "$LOG_DIR" || { echo -e "${RED}>> Failed to create log directory.${NC}"; exit 1; }
+    echo -e "${GREEN}>> Startup directory created: $LOG_DIR${NC}"
 else
-    echo -e "${BLUE}>> Startup directory exists: $INSTALL_DIR/Logs/Startup${NC}"
+    echo -e "${BLUE}>> Startup directory exists: $LOG_DIR${NC}"
 fi
 
-# Define log file
-LOGFILE="$INSTALL_DIR/Logs/Startup/startup_logs"
+# Define log file with timestamp
+LOGFILE="$LOG_DIR/startup_logs_$(date +%Y%m%d_%H%M%S).log"
 touch "$LOGFILE"
 
 # Introductory message
 echo -e "${BLUE}=================================================="
 echo -e "            AK Server Startup Script              "
 echo -e "                Developer: Dulgan                 "
-echo -e "==================================================${NC}"
+echo -e "==================================================${NC}" | tee -a "$LOGFILE"
 
-# Stop servers silently
-pkill -f LoginServer 2>/dev/null
-pkill -f GatewayServer 2>/dev/null
-pkill -f TicketServer 2>/dev/null
-pkill -f MissionServer 2>/dev/null
-pkill -f WorldServer 2>/dev/null
-pkill -f ZoneServer 2>/dev/null
+# Stop servers silently before starting
+for srv in LoginServer GatewayServer TicketServer MissionServer WorldServer ZoneServer; do
+    pkill -f "$srv" 2>/dev/null
+done
 
 # Function to handle CTRL+C
 trap_ctrlc() {
@@ -56,40 +42,43 @@ trap_ctrlc() {
     "$INSTALL_DIR/stop"
     exit 0
 }
-
-# Set trap for CTRL+C
 trap trap_ctrlc INT
 
-# Function to start servers
+# Function to start a server
 declare -A SERVER_PIDS
-
 start_server() {
     local server_path="$1"
     local server_exec="$2"
     local port="$3"
 
-    cd "$server_path" || { echo ">> Cannot access $server_path." | tee -a "$LOGFILE"; exit 1; }
+    cd "$server_path" || { echo -e "${RED}>> Cannot access $server_path.${NC}" | tee -a "$LOGFILE"; exit 1; }
     chmod 755 "$server_exec"
 
-    # Start server with or without port
+    # Check if server is already running
+    if pgrep -f "$server_exec" > /dev/null; then
+        echo -e "${BLUE}>> $server_exec is already running. Skipping start.${NC}" | tee -a "$LOGFILE"
+        return
+    fi
+
+    # Start server with optional port
     if [[ -n "$port" ]]; then
         nohup ./"$server_exec" -p "$port" >>"$LOGFILE" 2>&1 &
     else
         nohup ./"$server_exec" >>"$LOGFILE" 2>&1 &
     fi
 
-    pid=$!
+    local pid=$!
     SERVER_PIDS["$server_exec"]=$pid
 
     sleep 2
 
     if ! ps -p $pid > /dev/null; then
-        echo ">> $server_exec failed to start or crashed immediately." | tee -a "$LOGFILE"
+        echo -e "${RED}>> $server_exec failed to start or crashed immediately.${NC}" | tee -a "$LOGFILE"
         exit 1
     fi
 
-    echo -e "${GREEN}>> $server_exec started successfully.${NC}"
-    sleep 15
+    echo -e "${GREEN}>> $server_exec started successfully with PID $pid.${NC}" | tee -a "$LOGFILE"
+    sleep 5
 }
 
 # Record start time
@@ -108,21 +97,14 @@ show_running_time() {
     while true; do
         CURRENT_TIME=$(date +%s)
         ELAPSED_TIME=$(( CURRENT_TIME - START_TIME ))
-
-        # Calculate days, hours, minutes, and seconds
         DAYS=$(( ELAPSED_TIME / 86400 ))
         HOURS=$(( (ELAPSED_TIME % 86400) / 3600 ))
         MINUTES=$(( (ELAPSED_TIME % 3600) / 60 ))
         SECONDS=$(( ELAPSED_TIME % 60 ))
-
-        # Calculate CPU and RAM usage
-        CPU_USAGE=$(top -b -n1 | grep "Cpu(s)" | awk '{usage=$2+$4; if (usage>100) usage=100; printf "%.2f", usage}')
-        MEM_USAGE=$(free | grep Mem | awk '{usage=($3/$2)*100; if (usage>100) usage=100; printf "%.2f", usage}')
-
-        # Print to console
+        CPU_USAGE=$(top -b -n1 | grep "Cpu(s)" | awk '{usage=$2+$4; printf "%.2f", usage}')
+        MEM_USAGE=$(free | grep Mem | awk '{usage=($3/$2)*100; printf "%.2f", usage}')
         echo -ne "${BLUE}>> Uptime: ${DAYS}d ${HOURS}h ${MINUTES}m ${SECONDS}s | CPU: ${CPU_USAGE}% | RAM: ${MEM_USAGE}% | Press CTRL+C to stop \r${NC}"
-
-        # Check if servers are still running
+        
         for server in "${!SERVER_PIDS[@]}"; do
             pid=${SERVER_PIDS[$server]}
             if ! ps -p $pid > /dev/null; then
@@ -130,10 +112,9 @@ show_running_time() {
                 unset SERVER_PIDS["$server"]
             fi
         done
-
         sleep 1
     done
 }
 
-# After all servers are started, display uptime and resource usage
+# Display uptime and resource usage
 show_running_time
