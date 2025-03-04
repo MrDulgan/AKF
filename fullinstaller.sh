@@ -6,7 +6,7 @@ RED='\e[0;31m'
 GREEN='\e[1;32m'
 BLUE='\e[0;36m'
 YELLOW='\e[1;33m'
-NC='\e[0m'
+NC='\e[0m'  # No Color
 
 # Default configuration values
 DB_VERSION=13
@@ -15,15 +15,6 @@ DB_PASS=''
 INSTALL_DIR='/root/hxsy'
 DOWNLOAD_URL='https://mega.nz/file/z6AyGIaA#1OXGc4amedlwtNvknc-KC9im_B9nh0FeXO1Ns51Fvr0'
 LOG_FILE="/tmp/ak_installer.log"
-
-# Command-line options defaults
-DEBUG=0
-CONFIG_FILE=""
-OVERRIDE_IP=""
-ADMIN_USERNAME_ARG=""
-ADMIN_PASSWORD_ARG=""
-# The -s flag (systemd service) if provided will auto-install the service.
-INSTALL_SYSTEMD=0
 
 # Operation status variables for final reporting
 declare -A STATUS=(
@@ -37,59 +28,22 @@ declare -A STATUS=(
     [grub_configured]=false
 )
 
-# ---------------------- Command-Line Parsing --------------------------
-usage() {
-    echo "Usage: $0 [-d] [-c config_file] [-i IP_address] [-u admin_username] [-p admin_password] [-s]"
-    echo "  -d                Enable debug mode (verbose logging)."
-    echo "  -c config_file    Specify a configuration file (bash format) to override defaults."
-    echo "  -i IP_address     Provide the server IP address (bypasses interactive IP selection)."
-    echo "  -u admin_username Provide admin username (bypasses interactive prompt)."
-    echo "  -p admin_password Provide admin password (bypasses interactive prompt)."
-    echo "  -s                Automatically install a systemd service (without prompting)."
-    exit 1
-}
-
-while getopts "dc:i:u:p:s" opt; do
-  case "$opt" in
-    d) DEBUG=1;;
-    c) CONFIG_FILE="$OPTARG";;
-    i) OVERRIDE_IP="$OPTARG";;
-    u) ADMIN_USERNAME_ARG="$OPTARG";;
-    p) ADMIN_PASSWORD_ARG="$OPTARG";;
-    s) INSTALL_SYSTEMD=1;;
-    *) usage;;
-  esac
-done
-
-# If a config file is provided, source it to override default variables
-if [ -n "$CONFIG_FILE" ] && [ -f "$CONFIG_FILE" ]; then
-    source "$CONFIG_FILE"
-fi
-
-# Initialize log file
+# ---------------------- Logging and Error Handling --------------------
 echo "Installation started at $(date)" > "$LOG_FILE"
 
-# Log helper function (prints to log and, if DEBUG enabled, to stdout)
 log_message() {
     echo "[INFO] $(date): $1" >> "$LOG_FILE"
-    if [ "$DEBUG" -eq 1 ]; then
-       echo "[DEBUG] $(date): $1"
-    fi
 }
 
-# Global trap for unexpected errors
 trap 'error_exit "An unexpected error occurred. Please check ${LOG_FILE} for details."' ERR
 
-# ---------------------- Helper Functions ------------------------------
-
-# Exit function with error logging
 error_exit() {
     echo -e "${RED}[ERROR] $1${NC}"
     echo "[ERROR] $(date): $1" >> "$LOG_FILE"
     exit 1
 }
 
-# Retry function for commands
+# ---------------------- Retry Logic Function --------------------------
 retry_command() {
     local n=0
     local max=3
@@ -109,6 +63,7 @@ retry_command() {
 }
 
 # -------------------- Resource Checks ---------------------------
+# Check available disk space (requires at least 1 GB free)
 check_disk_space() {
     REQUIRED_SPACE=1048576  # in KB (1 GB)
     avail=$(df "$INSTALL_DIR" 2>/dev/null | tail -1 | awk '{print $4}')
@@ -121,6 +76,7 @@ check_disk_space() {
     log_message "Disk space check passed: ${avail} KB available."
 }
 
+# Check available memory (requires at least 4 GB free)
 check_memory() {
     REQUIRED_MEMORY=4194304  # in KB (4 GB)
     avail_mem=$(grep MemAvailable /proc/meminfo | awk '{print $2}')
@@ -131,8 +87,6 @@ check_memory() {
 }
 
 # ------------------- Initial Display & OS Detection --------------------
-
-# Initial installer message
 echo -e "${BLUE}
 ==================================================
            AK Installer Script
@@ -140,7 +94,6 @@ echo -e "${BLUE}
 ==================================================${NC}"
 log_message "Installer started."
 
-# Display recommended OS notice
 display_recommendation() {
     echo -e "${YELLOW}
 [NOTICE] It is highly recommended to run this installation on Debian 11.
@@ -150,7 +103,6 @@ ${NC}"
 }
 display_recommendation
 
-# Detect the operating system and package manager
 detect_os() {
     echo -e "${BLUE}>> Detecting operating system...${NC}"
     if [ -f /etc/os-release ]; then
@@ -173,7 +125,6 @@ detect_os() {
     fi
 }
 
-# Check for the presence of sudo
 check_sudo_command() {
     echo -e "${BLUE}>> Checking for 'sudo' command...${NC}"
     if ! command -v sudo &> /dev/null; then
@@ -189,7 +140,6 @@ check_disk_space
 check_memory
 
 # -------------------- Locale and Dependencies Setup -------------------
-
 configure_locales() {
     echo -e "${BLUE}>> Configuring locales...${NC}"
     log_message "Starting locale configuration."
@@ -318,7 +268,6 @@ check_and_install_commands() {
 }
 
 # ---------------------- PostgreSQL Setup ------------------------------
-
 check_postgresql_version() {
     echo -e "${BLUE}>> Checking PostgreSQL installation...${NC}"
     if command -v psql &> /dev/null; then
@@ -414,7 +363,6 @@ secure_postgresql() {
 }
 
 # ---------------------- Firewall and Directory ------------------------
-
 setup_firewall_rules() {
     echo -e "${BLUE}>> Configuring firewall rules...${NC}"
     PORTS=("5567" "5568" "6543" "7654" "7777" "7878" "10021" "10022")
@@ -474,7 +422,6 @@ handle_existing_install_dir() {
 }
 
 # -------------------- File Downloads and Extraction -------------------
-
 download_server_files() {
     echo -e "${BLUE}>> Downloading server files...${NC}"
     retry_command megadl "$DOWNLOAD_URL" --path "/root/hxsy.zip" > /dev/null 2>&1 || error_exit "Failed to download hxsy.zip after multiple attempts."
@@ -541,14 +488,8 @@ remove_sql_directory() {
 }
 
 # ---------------------- Patching and Updates --------------------------
-
 patch_server_files() {
     echo -e "${BLUE}>> Patching server files...${NC}"
-
-    # Use OVERRIDE_IP if provided; otherwise, use the selected IP.
-    if [ -n "$OVERRIDE_IP" ]; then
-        IP="$OVERRIDE_IP"
-    fi
 
     IFS='.' read -r -a IP_ARRAY <<< "$IP"
     PATCHIP=$(printf '\\x%02X\\x%02X\\x%02X' "${IP_ARRAY[0]}" "${IP_ARRAY[1]}" "${IP_ARRAY[2]}")
@@ -562,7 +503,6 @@ patch_server_files() {
         sed -i "s/xxxxxxxx/$DBPASS_ESCAPED/g" "$INSTALL_DIR/GatewayServer/setup.ini" || error_exit "Failed to patch GatewayServer/setup.ini."
     fi
 
-    # Patch mission server binary
     patch_mission_server() {
         local binary_file=$1
         local offset=$2
@@ -653,17 +593,9 @@ admin_info_message() {
 
 create_admin_account() {
     echo -e "\n${BLUE}>> Creating Admin Account...${NC}"
-    # Use command-line provided credentials if available
-    if [ -n "$ADMIN_USERNAME_ARG" ] && [ -n "$ADMIN_PASSWORD_ARG" ]; then
-        ADMIN_USERNAME="$ADMIN_USERNAME_ARG"
-        ADMIN_PASSWORD="$ADMIN_PASSWORD_ARG"
-        echo -e "${GREEN}>> Using admin credentials provided via command-line.${NC}"
-    else
-        read -p "Username: " ADMIN_USERNAME
-        read -s -p "Password: " ADMIN_PASSWORD
-        echo ""
-    fi
-
+    read -p "Username: " ADMIN_USERNAME
+    read -s -p "Password: " ADMIN_PASSWORD
+    echo ""
     # Validate that the username is 3-16 characters and only contains lowercase letters and digits
     if [[ ! "$ADMIN_USERNAME" =~ ^[a-z0-9]{3,16}$ ]]; then
         error_exit "Username must be 3-16 characters long and contain only lowercase letters and numbers."
@@ -683,6 +615,24 @@ create_admin_account() {
 }
 
 # ------------------- Optional Systemd Service Setup -------------------
+prompt_systemd_service() {
+    echo -e "${YELLOW}
+[OPTIONAL] You can install a systemd service for the server. This will allow you to easily manage the server using:
+    systemctl start aurakingdom
+    systemctl stop aurakingdom
+    systemctl restart aurakingdom
+and view its status with:
+    systemctl status aurakingdom
+Would you like to install the systemd service? [Y/n]: ${NC}"
+    read -r service_choice
+    if [[ "$service_choice" =~ ^[Yy]$ ]] || [ -z "$service_choice" ]; then
+        install_systemd_service
+    else
+        echo -e "${BLUE}>> Skipping systemd service installation.${NC}"
+        log_message "User opted not to install systemd service."
+    fi
+}
+
 install_systemd_service() {
     echo -e "${BLUE}>> Creating systemd service for the server...${NC}"
     SERVICE_FILE="/etc/systemd/system/aurakingdom.service"
@@ -708,44 +658,21 @@ EOF
     log_message "Systemd service 'aurakingdom' installed."
 }
 
-prompt_systemd_service() {
-    echo -e "${YELLOW}
-[OPTIONAL] You can install a systemd service for the server. This will allow you to easily manage the server using commands like:
-    systemctl start aurakingdom
-    systemctl stop aurakingdom
-    systemctl restart aurakingdom
-and view its status with:
-    systemctl status aurakingdom
-Would you like to install the systemd service? [Y/n]: ${NC}"
-    read -r service_choice
-    if [[ "$service_choice" =~ ^[Yy]$ ]] || [ -z "$service_choice" ]; then
-        install_systemd_service
-    else
-        echo -e "${BLUE}>> Skipping systemd service installation.${NC}"
-        log_message "User opted not to install systemd service."
-    fi
-}
-
 # --------------------------- Main Flow ------------------------------
-
 detect_os
 check_sudo_command
 configure_locales
-if [ -z "$OVERRIDE_IP" ]; then
-    # If no IP provided via command-line, prompt interactively
-    echo -e "${BLUE}>> Please select an IP address for the server:${NC}"
-    ips=($(hostname -I))
-    for i in "${!ips[@]}"; do
-        echo -e "${BLUE}   [$((i + 1))] ${ips[$i]}${NC}"
-    done
-    read -p "$(echo -e ${BLUE}Enter the number of the desired IP: ${NC})" ip_choice
-    IP=${ips[$((ip_choice - 1))]}
-    if [[ -z "$IP" ]]; then
-        error_exit "Invalid IP selection."
-    fi
-else
-    IP="$OVERRIDE_IP"
-    echo -e "${GREEN}>> Using IP address from command-line: $IP${NC}"
+
+# Interactive IP address selection
+echo -e "${BLUE}>> Please select an IP address for the server:${NC}"
+ips=($(hostname -I))
+for i in "${!ips[@]}"; do
+    echo -e "${BLUE}   [$((i + 1))] ${ips[$i]}${NC}"
+done
+read -p "$(echo -e ${BLUE}Enter the number of the desired IP: ${NC})" ip_choice
+IP=${ips[$((ip_choice - 1))]}
+if [[ -z "$IP" ]]; then
+    error_exit "Invalid IP selection."
 fi
 log_message "Server IP: $IP"
 
@@ -799,12 +726,7 @@ admin_info_message
 
 chmod -R 755 "$INSTALL_DIR"
 
-# Systemd service installation:
-if [ "$INSTALL_SYSTEMD" -eq 1 ]; then
-    install_systemd_service
-else
-    prompt_systemd_service
-fi
+prompt_systemd_service
 
 # Final installation message
 if [ "${STATUS[postgresql_installed]}" = true ] && [ "${STATUS[config_success]}" = true ] && \
