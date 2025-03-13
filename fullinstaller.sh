@@ -76,21 +76,31 @@ check_disk_space() {
     log_message "Disk space check passed: ${avail} KB available."
 }
 
-# Check available memory (requires at least 4 GB free)
+# Check available memory (no hard requirement, but it's going to warn and prompt you if low)
 check_memory() {
-    REQUIRED_MEMORY=4194304  # in KB (4 GB)
     avail_mem=$(grep MemAvailable /proc/meminfo | awk '{print $2}')
-    if [ "$avail_mem" -lt "$REQUIRED_MEMORY" ]; then
-         error_exit "Insufficient available memory. At least 4 GB is required."
+    echo -e "${BLUE}>> Available memory: ${avail_mem} KB${NC}"
+    log_message "Memory check: ${avail_mem} KB available."
+    
+    # Display warning if memory is low but continue anyway..
+    RECOMMENDED_MEMORY=4194304  # in KB (4 GB)
+    if [ "$avail_mem" -lt "$RECOMMENDED_MEMORY" ]; then
+        echo -e "${YELLOW}[WARNING] Available memory is less than 4 GB. Performance may be affected.${NC}"
+        log_message "Low memory warning: ${avail_mem} KB available (less than recommended 4 GB)"
+        
+        # Ask if user wants to continue with low memory..
+        read -p "Continue with installation despite low memory? [Y/n]: " choice
+        if [[ "$choice" =~ ^[Nn]$ ]]; then
+            error_exit "Installation aborted by user due to low memory."
+        fi
     fi
-    log_message "Memory check passed: ${avail_mem} KB available."
 }
 
 # ------------------- Initial Display & OS Detection --------------------
 echo -e "${BLUE}
 ==================================================
            AK Installer Script
-           Developer: Dulgan
+           Developer: Dulgan - Codebreaker : Tariq
 ==================================================${NC}"
 log_message "Installer started."
 
