@@ -1935,13 +1935,13 @@ if [ "$INSTALL_SUCCESS" = true ]; then
     echo -e "Installation Directory : ${GREEN}$INSTALL_DIR${NC}"
     echo -e "PostgreSQL Version     : ${GREEN}$DB_VERSION${NC}"
     echo -e "Database User          : ${GREEN}$DB_USER${NC}"
-    echo -e "Database Password      : ${GREEN}$DB_PASS${NC} (SAVE THIS SECURELY!)"
+    echo -e "Database Password      : ${GREEN}$DB_PASS${NC}"
     echo -e "Admin Game Account     : ${GREEN}$ADMIN_USERNAME${NC}"
 
     echo -e "\n${BLUE}SSH Status:${NC}"
     if [ "${STATUS[ssh_service_checked]}" = true ]; then
         echo -e " - SSH Service         : ${GREEN}Checked/Configured${NC}"
-        local ssh_config_file="/etc/ssh/sshd_config"
+        ssh_config_file="/etc/ssh/sshd_config"
         if [ -f "$ssh_config_file" ]; then
              if grep -qE "^\s*PermitRootLogin\s+yes\s*$" "$ssh_config_file" && grep -qE "^\s*PasswordAuthentication\s+yes\s*$" "$ssh_config_file"; then
                   echo -e " - Root Login (Password): ${GREEN}Enabled${NC}"
