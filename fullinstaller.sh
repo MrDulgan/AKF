@@ -1,10 +1,12 @@
 #!/bin/bash
 
-RED='\e[0;31m'
+RED='\e[1;31m'
 GREEN='\e[1;32m'
-BLUE='\e[0;36m'
-YELLOW='\e[1;33m'
+BLUE='\e[0;34m'
+YELLOW='\e[0;33m'
 MAGENTA='\e[1;35m'
+CYAN='\e[0;36m'
+BOLD_YELLOW='\e[1;33m'
 NC='\e[0m'
 
 DB_VERSION=13
@@ -147,7 +149,7 @@ check_memory() {
     local avail_mem_gb=$(awk "BEGIN {printf \"%.2f\", $avail_mem_kb / 1024 / 1024}")
 
     if [ "$avail_mem_kb" -lt "$REQUIRED_MEMORY_KB" ]; then
-        echo -e "\n${YELLOW}[!] WARNING: Insufficient Memory Detected!${NC}"
+        echo -e "\n${BOLD_YELLOW}[!] WARNING: Insufficient Memory Detected!${NC}"
         echo -e "At least ${REQUIRED_MEMORY_GB} GB of available memory (RAM) is recommended for installation."
         if [ "$using_fallback" = true ]; then
              echo -e "Your system currently reports approximately ${avail_mem_gb} GB free memory (estimated using MemFree)."
@@ -158,7 +160,7 @@ check_memory() {
         log_message "Warning: Insufficient memory detected. Required: ${REQUIRED_MEMORY_GB} GB, Available: ${avail_mem_gb} GB (Fallback: $using_fallback)."
 
         local continue_choice
-        read -p "Do you want to continue anyway? [y/N]: " continue_choice
+        read -p "$(echo -e ${CYAN}"Do you want to continue anyway? [y/N]: "${NC})" continue_choice
         if [[ ! "$continue_choice" =~ ^[Yy]$ ]]; then
             error_exit "Installation aborted due to insufficient memory."
         else
@@ -262,17 +264,17 @@ check_and_manage_ssh() {
     fi
 
     if [ "$ssh_installed" = false ]; then
-        echo -e "\n${YELLOW}[!] Notice: SSH Server (sshd or ssh service) not found.${NC}"
+        echo -e "\n${BOLD_YELLOW}[!] Notice: SSH Server (sshd or ssh service) not found.${NC}"
         echo -e "An SSH server is required to connect to this machine remotely using"
         echo -e "tools like Putty, WinSCP, FileZilla, or terminal commands."
         log_message "SSH service not found."
         local install_ssh_choice
-        read -p "Do you want to install the SSH server package ($SSH_PKG)? [Y/n]: " install_ssh_choice
+        read -p "$(echo -e ${CYAN}"Do you want to install the SSH server package ($SSH_PKG)? [Y/n]: "${NC})" install_ssh_choice
 
         if [[ "$install_ssh_choice" =~ ^[Yy]$ ]] || [ -z "$install_ssh_choice" ]; then
             echo -e "${BLUE}>> Attempting to install $SSH_PKG...${NC}"
             if [ "$PKG_MANAGER" = 'apt-get' ]; then
-                 retry_command sudo apt-get -qq update || echo -e "${YELLOW}[!] Warning: Failed to update package lists before SSH install attempt.${NC}"
+                 retry_command sudo apt-get -qq update || echo -e "${BOLD_YELLOW}[!] Warning: Failed to update package lists before SSH install attempt.${NC}"
             fi
             if retry_command sudo "$PKG_MANAGER" -y -qq install "$SSH_PKG"; then
                 echo -e "${GREEN}[✓] Successfully installed $SSH_PKG.${NC}"
@@ -296,7 +298,7 @@ check_and_manage_ssh() {
                 return
             fi
         else
-            echo -e "${YELLOW}[!] Warning: Skipping SSH server installation as requested. Remote access via SSH might not be possible.${NC}"
+            echo -e "${BOLD_YELLOW}[!] Warning: Skipping SSH server installation as requested. Remote access via SSH might not be possible.${NC}"
             log_message "User skipped SSH server installation."
             STATUS[ssh_service_checked]=false
             return
@@ -317,7 +319,7 @@ check_and_manage_ssh() {
     if [ "$needs_action" = true ]; then
         echo -e "${BLUE}>> Attempting to enable and start SSH service ($ssh_service_name)...${NC}"
         if ! sudo systemctl enable "$ssh_service_name"; then
-            echo -e "${YELLOW}[!] Warning: Failed to enable SSH service $ssh_service_name.${NC}"
+            echo -e "${BOLD_YELLOW}[!] Warning: Failed to enable SSH service $ssh_service_name.${NC}"
         else
              echo -e "${GREEN}[✓] SSH service $ssh_service_name enabled.${NC}"
         fi
@@ -337,7 +339,7 @@ check_and_manage_ssh() {
 
     echo -e "${BLUE}>> Checking SSH configuration for root login with password...${NC}"
     if [ ! -f "$SSH_CONFIG_FILE" ]; then
-        echo -e "${YELLOW}[!] Warning: SSH config file ($SSH_CONFIG_FILE) not found. Cannot check/configure root login.${NC}"
+        echo -e "${BOLD_YELLOW}[!] Warning: SSH config file ($SSH_CONFIG_FILE) not found. Cannot check/configure root login.${NC}"
         log_message "Warning: SSH config file $SSH_CONFIG_FILE not found."
         STATUS[ssh_service_checked]=true
         return
@@ -386,7 +388,7 @@ check_and_manage_ssh() {
         echo -e "${BLUE}>> Restarting SSH service ($ssh_service_name) to apply configuration changes...${NC}"
         if ! sudo systemctl restart "$ssh_service_name"; then
             echo -e "${RED}[✗] ERROR: Failed to restart SSH service ($ssh_service_name) after config change. Check logs ('sudo journalctl -u $ssh_service_name').${NC}"
-            echo -e "${YELLOW}[!] Warning: Configuration changes were made, but service restart failed. Manual check required.${NC}"
+            echo -e "${BOLD_YELLOW}[!] Warning: Configuration changes were made, but service restart failed. Manual check required.${NC}"
             log_message "Error: Failed to restart SSH service $ssh_service_name after config change."
             STATUS[ssh_service_checked]=false
             return
@@ -418,7 +420,7 @@ configure_locales() {
             echo -e "${GREEN}[✓] 'locales' package is already installed.${NC}"
         fi
 
-        sudo cp /etc/locale.gen /etc/locale.gen.bak.$(date +%F_%T) || echo -e "${YELLOW}[!] Warning: Could not backup /etc/locale.gen.${NC}"
+        sudo cp /etc/locale.gen /etc/locale.gen.bak.$(date +%F_%T) || echo -e "${BOLD_YELLOW}[!] Warning: Could not backup /etc/locale.gen.${NC}"
 
         local locales_changed=false
         for locale_line in "${REQUIRED_LOCALES[@]}"; do
@@ -460,7 +462,7 @@ configure_locales() {
          fi
 
          if ! locale -a | grep -q -i "en_US.utf8"; then
-             echo -e "${YELLOW}[!] Warning: en_US.UTF-8 locale not found after installing langpack. Manual check might be needed.${NC}"
+             echo -e "${BOLD_YELLOW}[!] Warning: en_US.UTF-8 locale not found after installing langpack. Manual check might be needed.${NC}"
              log_message "Warning: en_US.UTF-8 locale not found after installing langpack."
          else
              echo -e "${GREEN}[✓] Locale en_US.UTF-8 is available.${NC}"
@@ -571,13 +573,13 @@ check_and_install_megatools() {
              echo -e "${YELLOW}[*] Notice: Direct installation failed. Checking EPEL/Raven...${NC}"
              if ! rpm -q epel-release &>/dev/null && [[ "$OS" == "CentOS"* || "$OS" == "RHEL"* ]]; then
                  echo -e "${BLUE}>> Installing EPEL repository...${NC}"
-                 retry_command sudo "$PKG_MANAGER" -y -q install epel-release || echo -e "${YELLOW}[!] Warning: Failed to install EPEL repository. megatools might not be available.${NC}"
+                 retry_command sudo "$PKG_MANAGER" -y -q install epel-release || echo -e "${BOLD_YELLOW}[!] Warning: Failed to install EPEL repository. megatools might not be available.${NC}"
              fi
              if ! rpm -q raven-release &>/dev/null && [[ "$OS_VERSION" == "9" ]]; then
                  echo -e "${BLUE}>> Installing Raven repository for EL9...${NC}"
                  local install_cmd="yum"
                  if command -v dnf &> /dev/null; then install_cmd="dnf"; fi
-                 retry_command sudo $install_cmd install -y https://pkgs.dyn.su/el9/base/x86_64/raven-release.el9.noarch.rpm || echo -e "${YELLOW}[!] Warning: Failed to install Raven repository. megatools might not be available.${NC}"
+                 retry_command sudo $install_cmd install -y https://pkgs.dyn.su/el9/base/x86_64/raven-release.el9.noarch.rpm || echo -e "${BOLD_YELLOW}[!] Warning: Failed to install Raven repository. megatools might not be available.${NC}"
              fi
              echo -e "${BLUE}>> Retrying 'megatools' installation after checking repositories...${NC}"
              retry_command sudo "$PKG_MANAGER" -y -qq install megatools || error_exit "Failed to install megatools even after checking EPEL/Raven repositories."
@@ -669,20 +671,20 @@ check_postgresql_version() {
         if [ "$INSTALLED_VERSION_MAJOR" != "$DB_VERSION" ]; then
             echo -e "${YELLOW}[!] Notice: Installed PostgreSQL major version ($INSTALLED_VERSION_MAJOR) does not match required version ($DB_VERSION).${NC}"
             local choice
-            read -p "Do you want to attempt removing version $INSTALLED_VERSION_FULL and install version $DB_VERSION? [y/N]: " choice
+            read -p "$(echo -e ${CYAN}"Do you want to attempt removing version $INSTALLED_VERSION_FULL and install version $DB_VERSION? [y/N]: "${NC})" choice
             if [[ "$choice" =~ ^[Yy]$ ]]; then
                 echo -e "${BLUE}>> Attempting to remove existing PostgreSQL installation...${NC}"
                 if [ "$PKG_MANAGER" = 'apt-get' ]; then
-                    sudo systemctl stop postgresql || echo -e "${YELLOW}[!] Warning: Failed to stop postgresql service (maybe not running?).${NC}"
+                    sudo systemctl stop postgresql || echo -e "${BOLD_YELLOW}[!] Warning: Failed to stop postgresql service (maybe not running?).${NC}"
                     retry_command sudo apt-get -qq remove --purge "postgresql-$INSTALLED_VERSION_MAJOR" postgresql-client-common postgresql-common || error_exit "Failed to remove PostgreSQL packages."
-                    retry_command sudo apt-get -qq autoremove --purge || echo -e "${YELLOW}[!] Warning: Autoremove after PostgreSQL removal failed or did nothing.${NC}"
+                    retry_command sudo apt-get -qq autoremove --purge || echo -e "${BOLD_YELLOW}[!] Warning: Autoremove after PostgreSQL removal failed or did nothing.${NC}"
                     sudo rm -rf "/etc/postgresql/$INSTALLED_VERSION_MAJOR/"
                     sudo rm -rf "/var/lib/postgresql/$INSTALLED_VERSION_MAJOR/"
                     echo -e "${GREEN}[✓] Existing PostgreSQL version removed.${NC}"
                 elif [ "$PKG_MANAGER" = 'dnf' ] || [ "$PKG_MANAGER" = 'yum' ]; then
-                    sudo systemctl stop "postgresql-$INSTALLED_VERSION_MAJOR" || echo -e "${YELLOW}[!] Warning: Failed to stop postgresql-$INSTALLED_VERSION_MAJOR service.${NC}"
+                    sudo systemctl stop "postgresql-$INSTALLED_VERSION_MAJOR" || echo -e "${BOLD_YELLOW}[!] Warning: Failed to stop postgresql-$INSTALLED_VERSION_MAJOR service.${NC}"
                     retry_command sudo "$PKG_MANAGER" -y -q remove "postgresql$INSTALLED_VERSION_MAJOR*" || error_exit "Failed to remove PostgreSQL packages."
-                    retry_command sudo "$PKG_MANAGER" -y -q autoremove || echo -e "${YELLOW}[!] Warning: Autoremove after PostgreSQL removal failed or did nothing.${NC}"
+                    retry_command sudo "$PKG_MANAGER" -y -q autoremove || echo -e "${BOLD_YELLOW}[!] Warning: Autoremove after PostgreSQL removal failed or did nothing.${NC}"
                     sudo rm -rf "/var/lib/pgsql/$INSTALLED_VERSION_MAJOR/"
                     echo -e "${GREEN}[✓] Existing PostgreSQL version removed.${NC}"
                 fi
@@ -716,7 +718,7 @@ install_postgresql() {
               STATUS[postgresql_installed]=true
               local SERVICE_NAME
               if [ "$OS" = 'Debian' ] || [ "$OS" = 'Ubuntu' ]; then SERVICE_NAME="postgresql"; else SERVICE_NAME="postgresql-$DB_VERSION"; fi
-              sudo systemctl enable "$SERVICE_NAME" --now || echo -e "${YELLOW}[!] Warning: Could not enable/start existing PostgreSQL service $SERVICE_NAME.${NC}"
+              sudo systemctl enable "$SERVICE_NAME" --now || echo -e "${BOLD_YELLOW}[!] Warning: Could not enable/start existing PostgreSQL service $SERVICE_NAME.${NC}"
               return 0
          fi
     fi
@@ -746,7 +748,7 @@ install_postgresql() {
         local codename
         codename=$(lsb_release -cs 2>/dev/null)
         if [ -z "$codename" ]; then
-             echo -e "${YELLOW}[!] Warning: 'lsb_release -cs' failed. Trying to get codename from /etc/os-release.${NC}"
+             echo -e "${BOLD_YELLOW}[!] Warning: 'lsb_release -cs' failed. Trying to get codename from /etc/os-release.${NC}"
              codename=$(grep VERSION_CODENAME /etc/os-release | cut -d'=' -f2)
              if [ -z "$codename" ]; then
                  error_exit "Could not determine OS codename automatically. Cannot add PostgreSQL repository."
@@ -771,7 +773,7 @@ install_postgresql() {
         log_message "Installed postgresql-$DB_VERSION and postgresql-client-$DB_VERSION."
 
         echo -e "${BLUE}>> Enabling and starting PostgreSQL service...${NC}"
-        sudo systemctl enable postgresql || echo -e "${YELLOW}[!] Warning: Failed to enable PostgreSQL service.${NC}"
+        sudo systemctl enable postgresql || echo -e "${BOLD_YELLOW}[!] Warning: Failed to enable PostgreSQL service.${NC}"
         sudo systemctl start postgresql || error_exit "Failed to start PostgreSQL service."
         log_message "Enabled and started PostgreSQL service."
 
@@ -809,7 +811,7 @@ install_postgresql() {
 
         local SERVICE_NAME="postgresql-$DB_VERSION"
         echo -e "${BLUE}>> Enabling and starting $SERVICE_NAME service...${NC}"
-        sudo systemctl enable "$SERVICE_NAME" || echo -e "${YELLOW}[!] Warning: Failed to enable $SERVICE_NAME service.${NC}"
+        sudo systemctl enable "$SERVICE_NAME" || echo -e "${BOLD_YELLOW}[!] Warning: Failed to enable $SERVICE_NAME service.${NC}"
         sudo systemctl start "$SERVICE_NAME" || error_exit "Failed to start $SERVICE_NAME service."
         log_message "Enabled and started $SERVICE_NAME service."
     fi
@@ -903,7 +905,7 @@ configure_postgresql() {
 
     sleep 5
     if ! sudo -u "$DB_USER" psql -c '\q' > /dev/null 2>&1; then
-         echo -e "${YELLOW}[!] Warning: Could not connect to PostgreSQL as user '$DB_USER' after configuration. Check service status and logs.${NC}"
+         echo -e "${BOLD_YELLOW}[!] Warning: Could not connect to PostgreSQL as user '$DB_USER' after configuration. Check service status and logs.${NC}"
          log_message "Warning: Post-configuration connection check failed."
     else
          echo -e "${GREEN}[✓] Basic connection test to PostgreSQL successful.${NC}"
@@ -937,8 +939,8 @@ secure_postgresql() {
 
     log_message "Successfully set password for PostgreSQL user '$DB_USER'. Password: [REDACTED]"
     echo -e "${GREEN}[✓] Password for PostgreSQL user '$DB_USER' set successfully.${NC}"
-    echo -e "${YELLOW}[!] IMPORTANT: The generated PostgreSQL password is: $DB_PASS${NC}"
-    echo -e "${YELLOW}             Please save this password securely! It will be needed for configuration files.${NC}"
+    echo -e "${BOLD_YELLOW}[!] IMPORTANT: The generated PostgreSQL password is: $DB_PASS${NC}"
+    echo -e "${BOLD_YELLOW}             Please save this password securely! It will be needed for configuration files.${NC}"
 }
 
 
@@ -1030,8 +1032,8 @@ setup_firewall_rules() {
     fi
 
     if [ "$firewall_configured" = false ]; then
-        echo -e "${YELLOW}[!] Warning: No supported firewall (UFW or Firewalld) detected or managed.${NC}"
-        echo -e "${YELLOW}           Please ensure ports ${SSH_PORT}/tcp, ${PG_PORT}/tcp and ${PORTS[*]}/tcp are allowed manually if a firewall is active.${NC}"
+        echo -e "${BOLD_YELLOW}[!] Warning: No supported firewall (UFW or Firewalld) detected or managed.${NC}"
+        echo -e "${BOLD_YELLOW}           Please ensure ports ${SSH_PORT}/tcp, ${PG_PORT}/tcp and ${PORTS[*]}/tcp are allowed manually if a firewall is active.${NC}"
         log_message "No supported firewall detected or configured."
     fi
 }
@@ -1039,13 +1041,13 @@ setup_firewall_rules() {
 
 handle_existing_install_dir() {
     if [ -d "$INSTALL_DIR" ]; then
-        echo -e "${YELLOW}[!] WARNING: Installation directory '$INSTALL_DIR' already exists.${NC}"
-        echo -e "${BLUE}Choose an action:${NC}"
-        echo -e "${BLUE}  [1] Delete the existing directory and continue (ALL DATA INSIDE WILL BE LOST).${NC}"
-        echo -e "${BLUE}  [2] Rename the existing directory (append '-old-TIMESTAMP') and continue.${NC}"
-        echo -e "${BLUE}  [3] Abort installation.${NC}"
+        echo -e "${BOLD_YELLOW}[!] WARNING: Installation directory '$INSTALL_DIR' already exists.${NC}"
+        echo -e "${CYAN}Choose an action:${NC}"
+        echo -e "${CYAN}  [1] Delete the existing directory and continue (ALL DATA INSIDE WILL BE LOST).${NC}"
+        echo -e "${CYAN}  [2] Rename the existing directory (append '-old-TIMESTAMP') and continue.${NC}"
+        echo -e "${CYAN}  [3] Abort installation.${NC}"
         local dir_choice
-        read -p "Enter your choice [1/2/3]: " dir_choice
+        read -p "$(echo -e ${CYAN}"Enter your choice [1/2/3]: "${NC})" dir_choice
 
         case "$dir_choice" in
             1)
@@ -1144,7 +1146,7 @@ extract_server_files() {
         shopt -s dotglob
         mv "$nested_dir_path"/* "$INSTALL_DIR"/ || error_exit "Failed to move files from nested directory '$nested_dir_path'."
         shopt -u dotglob
-        rmdir "$nested_dir_path" || echo -e "${YELLOW}[!] Warning: Could not remove empty nested directory '$nested_dir_path'.${NC}"
+        rmdir "$nested_dir_path" || echo -e "${BOLD_YELLOW}[!] Warning: Could not remove empty nested directory '$nested_dir_path'.${NC}"
         log_message "Moved contents from $nested_dir_path and attempted removal."
     fi
 
@@ -1152,7 +1154,7 @@ extract_server_files() {
     chmod -R 755 "$INSTALL_DIR" || error_exit "Failed to set permissions on extracted files in '$INSTALL_DIR'."
 
     echo -e "${BLUE}>> Removing downloaded archive $download_path...${NC}"
-    rm -f "$download_path" || echo -e "${YELLOW}[!] Warning: Failed to remove downloaded archive '$download_path'.${NC}"
+    rm -f "$download_path" || echo -e "${BOLD_YELLOW}[!] Warning: Failed to remove downloaded archive '$download_path'.${NC}"
 
     echo -e "${GREEN}[✓] Server files extracted and permissions set.${NC}"
     log_message "Server files extracted to $INSTALL_DIR and permissions set."
@@ -1215,7 +1217,7 @@ import_databases() {
 
             local terminate_sql="SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = '$DB' AND pid <> pg_backend_pid();"
             if ! sudo -u "$DB_USER" psql -q -d postgres -c "$terminate_sql"; then
-                 echo -e "${YELLOW}[!] Warning: Failed to terminate connections to database '$DB'. Drop might fail.${NC}"
+                 echo -e "${BOLD_YELLOW}[!] Warning: Failed to terminate connections to database '$DB'. Drop might fail.${NC}"
                  log_message "Warning: Failed to terminate connections to database '$DB'."
             else
                  log_message "Terminated connections to database '$DB'."
@@ -1264,7 +1266,8 @@ import_databases() {
 
         echo -e "${BLUE}   >> Importing '$SQL_FILE' (${file_size_human}) into database '$DB'... (This might take a while)${NC}"
         log_message "Importing '$SQL_FILE' into database '$DB'."
-        if ! sudo -u "$DB_USER" psql -v ON_ERROR_STOP=1 -q -d "$DB" -f "$SQL_FILE" >> "$LOG_FILE" 2>&1; then
+
+        if ! sudo -u "$DB_USER" psql -v ON_ERROR_STOP=1 -q -d "$DB" < "$SQL_FILE" >> "$LOG_FILE" 2>&1; then
             echo -e "${RED}[✗] ERROR: Failed to import SQL file '$SQL_FILE' into database '$DB'. Check $LOG_FILE for details.${NC}"
             log_message "Error: Failed to import '$SQL_FILE' into database '$DB'."
             sql_import_failed=true
@@ -1277,7 +1280,7 @@ import_databases() {
     unset PGPASSWORD
 
     if [ "$sql_import_failed" = true ]; then
-        echo -e "${YELLOW}[!] Warning: One or more SQL imports failed or were skipped due to missing files. Check logs.${NC}"
+        echo -e "${BOLD_YELLOW}[!] Warning: One or more SQL imports failed or were skipped due to missing files. Check logs.${NC}"
         log_message "Warning: One or more SQL imports failed or were skipped."
         STATUS[sql_import_success]=false
     else
@@ -1380,7 +1383,7 @@ patch_server_files() {
              echo -e "${GREEN}   [✓] No patch needed for $mission_server_bin offset (already patched).${NC}"
              log_message "Skipped patching $mission_server_bin offset (already done)."
         else
-            echo -e "${YELLOW}[!] Warning: Unexpected hex value '$current_hex_val' found at offset $mission_offset in $mission_server_bin. Expected '$mission_original_hex'. Skipping patch.${NC}"
+            echo -e "${BOLD_YELLOW}[!] Warning: Unexpected hex value '$current_hex_val' found at offset $mission_offset in $mission_server_bin. Expected '$mission_original_hex'. Skipping patch.${NC}"
             log_message "Warning: Unexpected hex value '$current_hex_val' at offset $mission_offset in $mission_server_bin. Expected '$mission_original_hex'."
         fi
     else
@@ -1409,14 +1412,10 @@ patch_server_files() {
 
     for binary_file in "$world_server_bin" "$zone_server_bin"; do
          if [[ -f "$binary_file" ]]; then
-             local offset_found=""
-             if command -v perl &> /dev/null; then
-                 offset_found=$(perl -ne 'print tell if /\Q$ENV{ORIGINAL_IP_HEX_PATTERN}\E/' ORIGINAL_IP_HEX_PATTERN="$ORIGINAL_IP_HEX_PATTERN" "$binary_file" | head -n 1)
-             else
-                 if grep -qobUP "$ORIGINAL_IP_HEX_PATTERN" "$binary_file"; then offset_found="yes"; fi
-             fi
+             local pattern_found=""
+             if grep -qobUP "$ORIGINAL_IP_HEX_PATTERN" "$binary_file"; then pattern_found="yes"; fi
 
-             if [[ -n "$offset_found" ]]; then
+             if [[ -n "$pattern_found" ]]; then
                  echo -e "${BLUE}   >> Patching IP in $binary_file (replacing $ORIGINAL_IP_HEX_PATTERN with $PATCHIP_HEX)...${NC}"
                  cp "$binary_file" "$binary_file.bak.$$"
                  if command -v perl &> /dev/null; then
@@ -1435,11 +1434,7 @@ patch_server_files() {
              else
                   echo -e "${YELLOW}   [*] Original IP pattern '$ORIGINAL_IP_HEX_PATTERN' not found in $binary_file. Assuming already patched or not needed.${NC}"
                   local already_patched=""
-                   if command -v perl &> /dev/null; then
-                       already_patched=$(perl -ne 'print tell if /\Q$ENV{PATCHIP_HEX}\E/' PATCHIP_HEX="$PATCHIP_HEX" "$binary_file" | head -n 1)
-                   elif grep -qobUP "$PATCHIP_HEX" "$binary_file"; then
-                        already_patched="yes"
-                   fi
+                  if grep -qobUP "$PATCHIP_HEX" "$binary_file"; then already_patched="yes"; fi
                   if [[ -n "$already_patched" ]]; then
                        echo -e "${GREEN}   [✓] File $binary_file seems already patched with the correct IP pattern ($PATCHIP_HEX).${NC}"
                   fi
@@ -1524,7 +1519,7 @@ configure_grub() {
         elif [ -f /boot/efi/EFI/ubuntu/grub.cfg ]; then
              grub_update_cmd="sudo grub2-mkconfig -o /boot/efi/EFI/ubuntu/grub.cfg"
         else
-             echo -e "${YELLOW}[!] Warning: Cannot determine GRUB2 config file path for grub2-mkconfig.${NC}"
+             echo -e "${BOLD_YELLOW}[!] Warning: Cannot determine GRUB2 config file path for grub2-mkconfig.${NC}"
         fi
     fi
 
@@ -1536,7 +1531,7 @@ configure_grub() {
     fi
 
     if [ -z "$grub_update_cmd" ]; then
-         echo -e "${YELLOW}[!] Warning: Could not find a valid GRUB update command (update-grub or grub2-mkconfig). Skipping vsyscall configuration.${NC}"
+         echo -e "${BOLD_YELLOW}[!] Warning: Could not find a valid GRUB update command (update-grub or grub2-mkconfig). Skipping vsyscall configuration.${NC}"
          log_message "Skipped GRUB config: No update command found."
          STATUS[grub_configured]=false
          return
@@ -1561,7 +1556,7 @@ configure_grub() {
             echo -e "${GREEN}[✓] Added vsyscall=emulate to GRUB_CMDLINE_LINUX.${NC}"
             grub_needs_update=true
         else
-            echo -e "${YELLOW}[!] Warning: Could not find GRUB_CMDLINE_LINUX_DEFAULT or GRUB_CMDLINE_LINUX. Adding GRUB_CMDLINE_LINUX line.${NC}"
+            echo -e "${BOLD_YELLOW}[!] Warning: Could not find GRUB_CMDLINE_LINUX_DEFAULT or GRUB_CMDLINE_LINUX. Adding GRUB_CMDLINE_LINUX line.${NC}"
             echo '' | sudo tee -a "$grub_config_file" > /dev/null
             echo 'GRUB_CMDLINE_LINUX="vsyscall=emulate"' | sudo tee -a "$grub_config_file" > /dev/null || error_exit "Failed to add GRUB_CMDLINE_LINUX line to $grub_config_file."
             echo -e "${GREEN}[✓] Added GRUB_CMDLINE_LINUX=\"vsyscall=emulate\" line.${NC}"
@@ -1578,7 +1573,7 @@ configure_grub() {
             fi
             STATUS[grub_configured]=true
             echo -e "${GREEN}[✓] GRUB configuration updated successfully.${NC}"
-            echo -e "${YELLOW}[!] IMPORTANT: A system reboot is REQUIRED for the GRUB changes (vsyscall=emulate) to take effect.${NC}"
+            echo -e "${BOLD_YELLOW}[!] IMPORTANT: A system reboot is REQUIRED for the GRUB changes (vsyscall=emulate) to take effect.${NC}"
             log_message "GRUB configured for vsyscall=emulate and update command executed."
         fi
     fi
@@ -1591,13 +1586,13 @@ admin_info_message() {
         Admin Account Creation Details
 ==================================================${NC}"
     echo -e "Admin Username: ${GREEN}${ADMIN_USERNAME}${NC}"
-    echo -e "\n${YELLOW}[!] IMPORTANT: Post-Installation Steps for Admin:${NC}"
+    echo -e "\n${BOLD_YELLOW}[!] IMPORTANT: Post-Installation Steps for Admin:${NC}"
     echo -e "1. Log into the game using the admin account credentials."
     echo -e "2. Create a character for the admin account."
     echo -e "3. Access the PostgreSQL database (e.g., using psql or a GUI tool)."
     echo -e "4. Connect to the ${GREEN}FFDB1${NC} database."
     echo -e "5. Run the following SQL command to grant full GM privileges:"
-    echo -e "   ${BLUE}UPDATE player_characters SET privilege = 5 WHERE account_id = (SELECT idnum FROM \"FFMember\".tb_user WHERE mid = '${ADMIN_USERNAME}');${NC}"
+    echo -e "   ${CYAN}UPDATE player_characters SET privilege = 5 WHERE account_id = (SELECT idnum FROM \"FFMember\".tb_user WHERE mid = '${ADMIN_USERNAME}');${NC}"
     echo -e "   (Replace '${ADMIN_USERNAME}' if you used a different name. Note the schema qualification for FFMember)."
     log_message "Admin creation instructions displayed for user ${ADMIN_USERNAME}."
 }
@@ -1609,7 +1604,7 @@ create_admin_account() {
 
     echo -e "\n${BLUE}>> Creating Game Admin Account...${NC}"
     while true; do
-        read -p "Enter desired admin username (3-16 lowercase letters/numbers): " ADMIN_USERNAME
+        read -p "$(echo -e ${CYAN}"Enter desired admin username (3-16 lowercase letters/numbers): "${NC})" ADMIN_USERNAME
         if [[ "$ADMIN_USERNAME" =~ ^[a-z0-9]{3,16}$ ]]; then
             break
         else
@@ -1618,9 +1613,9 @@ create_admin_account() {
     done
 
     while true; do
-         read -s -p "Enter admin password: " ADMIN_PASSWORD
+         read -s -p "$(echo -e ${CYAN}"Enter admin password: "${NC})" ADMIN_PASSWORD
          echo ""
-         read -s -p "Confirm admin password: " ADMIN_PASSWORD_CONFIRM
+         read -s -p "$(echo -e ${CYAN}"Confirm admin password: "${NC})" ADMIN_PASSWORD_CONFIRM
          echo ""
          if [ "$ADMIN_PASSWORD" == "$ADMIN_PASSWORD_CONFIRM" ]; then
               if [ -z "$ADMIN_PASSWORD" ]; then
@@ -1725,7 +1720,7 @@ prompt_systemd_service() {
     echo -e "The service will also attempt to restart automatically if the server crashes."
 
     local service_choice
-    read -p "Would you like to install the systemd service? [Y/n]: " service_choice
+    read -p "$(echo -e ${CYAN}"Would you like to install the systemd service? [Y/n]: "${NC})" service_choice
 
     if [[ "$service_choice" =~ ^[Yy]$ ]] || [ -z "$service_choice" ]; then
         install_systemd_service
@@ -1818,7 +1813,7 @@ echo -e "${BLUE}>> Please select the primary IP address for the server:${NC}"
 select ip_choice in "${ips[@]}" "Enter IP manually" "Abort"; do
     case "$ip_choice" in
         "Enter IP manually")
-            read -p "Enter the desired IP address: " IP
+            read -p "$(echo -e ${CYAN}"Enter the desired IP address: "${NC})" IP
             if [[ ! "$IP" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
                  echo -e "${RED}[✗] Invalid IP format. Please try again.${NC}"
                  continue
@@ -1849,12 +1844,12 @@ check_kernel_version() {
     local KERNEL_VERSION_MAJOR
     KERNEL_VERSION_MAJOR=$(uname -r | cut -d'.' -f1)
     if [ "$KERNEL_VERSION_MAJOR" -ge 6 ]; then
-        echo -e "\n${YELLOW}--- Kernel Version Warning ---${NC}"
-        echo -e "${YELLOW}[!] WARNING: Your kernel version is ${KERNEL_VERSION_MAJOR}.x ($(uname -r)).${NC}"
+        echo -e "\n${BOLD_YELLOW}--- Kernel Version Warning ---${NC}"
+        echo -e "${BOLD_YELLOW}[!] WARNING: Your kernel version is ${KERNEL_VERSION_MAJOR}.x ($(uname -r)).${NC}"
         echo -e "${YELLOW}           This server software was likely designed for older kernels (e.g., 5.x like in Debian 11)."
         echo -e "${YELLOW}           You *might* encounter compatibility issues, especially related to the 'vsyscall=emulate' GRUB setting."
         echo -e "${YELLOW}           If you face problems, consider using Debian 11 (Bullseye)."
-        read -p "Press Enter to acknowledge and continue, or Ctrl+C to cancel..." dummy
+        read -p "$(echo -e ${CYAN}"Press Enter to acknowledge and continue, or Ctrl+C to cancel..."${NC})" dummy
         log_message "User acknowledged kernel version warning (Kernel: $(uname -r))."
     fi
 }
@@ -1914,7 +1909,7 @@ create_admin_account
 
 echo -e "\n${MAGENTA}--- Final Steps ---${NC}"
 echo -e "${BLUE}>> Ensuring correct permissions for $INSTALL_DIR...${NC}"
-chmod -R 755 "$INSTALL_DIR" || echo -e "${YELLOW}[!] Warning: Failed to set final permissions on $INSTALL_DIR.${NC}"
+chmod -R 755 "$INSTALL_DIR" || echo -e "${BOLD_YELLOW}[!] Warning: Failed to set final permissions on $INSTALL_DIR.${NC}"
 
 prompt_systemd_service
 
@@ -1987,10 +1982,10 @@ if [ "$INSTALL_SUCCESS" = true ]; then
     fi
 
     if [ "${STATUS[grub_configured]}" = true ]; then
-        echo -e "\n${YELLOW}[!] IMPORTANT: A system REBOOT is required for GRUB changes (vsyscall=emulate) to take effect.${NC}"
-        echo -e "              The server might not function correctly until after the reboot.${NC}"
+        echo -e "\n${BOLD_YELLOW}[!] IMPORTANT: A system REBOOT is required for GRUB changes (vsyscall=emulate) to take effect.${NC}"
+        echo -e "${BOLD_YELLOW}              The server might not function correctly until after the reboot.${NC}"
     fi
-     echo -e "\n${YELLOW}[!] REMINDER: Remember to grant GM privileges to your admin character in the database (see instructions above).${NC}"
+     echo -e "\n${BOLD_YELLOW}[!] REMINDER: Remember to grant GM privileges to your admin character in the database (see instructions above).${NC}"
     log_message "Installation completed successfully."
     echo -e "\n${GREEN}Log file located at: $LOG_FILE${NC}"
 else
