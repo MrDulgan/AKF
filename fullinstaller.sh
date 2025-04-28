@@ -60,9 +60,9 @@ error_exit() {
     if [[ "$1" == *"Database import failed"* ]] || [[ "$1" == *"Failed to import SQL file"* ]]; then
         echo -e "${YELLOW}[*] DEBUG: Checking PostgreSQL connection and databases...${NC}" | tee -a "$LOG_FILE"
         if command -v psql &>/dev/null && [ -n "$DB_USER" ]; then
-             sudo -H -u "$DB_USER" psql -l >> "$LOG_FILE" 2>&1
+             sudo -u "$DB_USER" psql -l >> "$LOG_FILE" 2>&1
              echo -e "${YELLOW}--- List of databases (from psql -l): ---${NC}" | tee -a "$LOG_FILE"
-             sudo -H -u "$DB_USER" psql -l | grep -E '^\s*(FFAccount|FFDB1|FFMember|postgres)'
+             sudo -u "$DB_USER" psql -l | grep -E '^\s*(FFAccount|FFDB1|FFMember|postgres)'
         fi
     fi
     exit 1
@@ -147,13 +147,13 @@ check_memory() {
 
     if [ "$avail_mem_kb" -lt "$REQUIRED_MEMORY_KB" ]; then
         echo -e "\n${YELLOW}[!] WARNING: Insufficient Memory Detected!${NC}"
-        echo -e "         At least ${REQUIRED_MEMORY_GB} GB of available memory (RAM) is recommended for installation."
+        echo -e "At least ${REQUIRED_MEMORY_GB} GB of available memory (RAM) is recommended for installation."
         if [ "$using_fallback" = true ]; then
-             echo -e "         Your system currently reports approximately ${avail_mem_gb} GB free memory (estimated using MemFree)."
+             echo -e "Your system currently reports approximately ${avail_mem_gb} GB free memory (estimated using MemFree)."
         else
-             echo -e "         Your system currently has approximately ${avail_mem_gb} GB available memory (MemAvailable)."
+             echo -e "Your system currently has approximately ${avail_mem_gb} GB available memory (MemAvailable)."
         fi
-        echo -e "         Continuing with low memory might lead to performance issues or installation failure."
+        echo -e "Continuing with low memory might lead to performance issues or installation failure."
         log_message "Warning: Insufficient memory detected. Required: ${REQUIRED_MEMORY_GB} GB, Available: ${avail_mem_gb} GB (Fallback: $using_fallback)."
 
         local continue_choice
@@ -262,8 +262,8 @@ check_and_manage_ssh() {
 
     if [ "$ssh_installed" = false ]; then
         echo -e "\n${YELLOW}[!] Notice: SSH Server (sshd or ssh service) not found.${NC}"
-        echo -e "         An SSH server is required to connect to this machine remotely using"
-        echo -e "         tools like Putty, WinSCP, FileZilla, or terminal commands."
+        echo -e "An SSH server is required to connect to this machine remotely using"
+        echo -e "tools like Putty, WinSCP, FileZilla, or terminal commands."
         log_message "SSH service not found."
         local install_ssh_choice
         read -p "Do you want to install the SSH server package ($SSH_PKG)? [Y/n]: " install_ssh_choice
@@ -1134,6 +1134,19 @@ extract_server_files() {
         fi
     fi
 
+    local nested_dir_base=$(basename "$INSTALL_DIR")
+    local nested_dir_path="$INSTALL_DIR/$nested_dir_base"
+
+    if [ -d "$nested_dir_path" ] && [ ! -d "$INSTALL_DIR/SQL" ]; then
+        echo -e "${YELLOW}[*] Notice: Detected nested directory structure ($nested_dir_path). Moving contents up...${NC}"
+        log_message "Detected nested directory $nested_dir_path, moving contents to $INSTALL_DIR."
+        shopt -s dotglob
+        mv "$nested_dir_path"/* "$INSTALL_DIR"/ || error_exit "Failed to move files from nested directory '$nested_dir_path'."
+        shopt -u dotglob
+        rmdir "$nested_dir_path" || echo -e "${YELLOW}[!] Warning: Could not remove empty nested directory '$nested_dir_path'.${NC}"
+        log_message "Moved contents from $nested_dir_path and attempted removal."
+    fi
+
     echo -e "${BLUE}>> Setting permissions (755) for extracted files in $INSTALL_DIR...${NC}"
     chmod -R 755 "$INSTALL_DIR" || error_exit "Failed to set permissions on extracted files in '$INSTALL_DIR'."
 
@@ -1184,7 +1197,7 @@ import_databases() {
     local SQL_DIR="$INSTALL_DIR/SQL"
 
     if [ ! -d "$SQL_DIR" ]; then
-        error_exit "Database import failed: SQL directory '$SQL_DIR' not found."
+        error_exit "Database import failed: SQL directory '$SQL_DIR' not found. Check if the downloaded archive contains the SQL folder correctly."
     fi
 
     export PGPASSWORD="$DB_PASS"
@@ -1194,12 +1207,12 @@ import_databases() {
     for DB in "${DATABASES[@]}"; do
         echo -e "${BLUE}   >> Preparing database '$DB'...${NC}"
         log_message "Preparing database $DB (dropping if exists, then creating)."
-        if sudo -H -u "$DB_USER" psql -lqt | cut -d \| -f 1 | grep -qw "$DB"; then
+        if sudo -u "$DB_USER" psql -lqt | cut -d \| -f 1 | grep -qw "$DB"; then
             echo -e "${YELLOW}     [*] Database '$DB' exists. Dropping...${NC}"
             if dropdb --version > /dev/null 2>&1; then
-                 sudo -H -u "$DB_USER" dropdb "$DB" || error_exit "Failed to drop existing database '$DB' using dropdb."
+                 sudo -u "$DB_USER" dropdb "$DB" || error_exit "Failed to drop existing database '$DB' using dropdb."
             else
-                 sudo -H -u "$DB_USER" psql -q -c "DROP DATABASE \"$DB\";" || error_exit "Failed to drop existing database '$DB' using psql."
+                 sudo -u "$DB_USER" psql -q -c "DROP DATABASE \"$DB\";" || error_exit "Failed to drop existing database '$DB' using psql."
             fi
              log_message "Dropped existing database '$DB'."
         else
@@ -1207,7 +1220,7 @@ import_databases() {
         fi
 
         echo -e "${BLUE}   >> Creating database '$DB'...${NC}"
-        if ! sudo -H -u "$DB_USER" createdb -O "$DB_USER" -T template0 "$DB"; then
+        if ! sudo -u "$DB_USER" createdb -O "$DB_USER" -T template0 "$DB"; then
             echo -e "${RED}[✗] ERROR: Failed to create database '$DB'.${NC}"
             db_creation_failed=true
             break
@@ -1238,7 +1251,7 @@ import_databases() {
 
         echo -e "${BLUE}   >> Importing '$SQL_FILE' (${file_size_human}) into database '$DB'... (This might take a while)${NC}"
         log_message "Importing '$SQL_FILE' into database '$DB'."
-        if ! sudo -H -u "$DB_USER" psql -v ON_ERROR_STOP=1 -q -d "$DB" -f "$SQL_FILE" >> "$LOG_FILE" 2>&1; then
+        if ! sudo -u "$DB_USER" psql -v ON_ERROR_STOP=1 -q -d "$DB" -f "$SQL_FILE" >> "$LOG_FILE" 2>&1; then
             echo -e "${RED}[✗] ERROR: Failed to import SQL file '$SQL_FILE' into database '$DB'. Check $LOG_FILE for details.${NC}"
             log_message "Error: Failed to import '$SQL_FILE' into database '$DB'."
             sql_import_failed=true
@@ -1442,7 +1455,7 @@ update_database_ips() {
 
     echo -e "${BLUE}   >> Updating FFAccount.worlds table...${NC}"
     local sql_cmd_account="UPDATE worlds SET ip = '$IP';"
-    if ! sudo -H -u "$DB_USER" psql -q -d "FFAccount" -c "$sql_cmd_account"; then
+    if ! sudo -u "$DB_USER" psql -q -d "FFAccount" -c "$sql_cmd_account"; then
         echo -e "${RED}[✗] ERROR: Failed to update IP in FFAccount.worlds.${NC}"
         update_failed=true
     else
@@ -1451,7 +1464,7 @@ update_database_ips() {
 
     echo -e "${BLUE}   >> Updating FFDB1.serverstatus table (excluding MissionServer)...${NC}"
     local sql_cmd_db1_main="UPDATE serverstatus SET ext_address = '$IP', int_address = '$IP' WHERE name != 'MissionServer';"
-    if ! sudo -H -u "$DB_USER" psql -q -d "FFDB1" -c "$sql_cmd_db1_main"; then
+    if ! sudo -u "$DB_USER" psql -q -d "FFDB1" -c "$sql_cmd_db1_main"; then
         echo -e "${RED}[✗] ERROR: Failed to update main IP addresses in FFDB1.serverstatus.${NC}"
         update_failed=true
     else
@@ -1460,7 +1473,7 @@ update_database_ips() {
 
     echo -e "${BLUE}   >> Updating FFDB1.serverstatus table (MissionServer entry)...${NC}"
     local sql_cmd_db1_mission="UPDATE serverstatus SET ext_address = 'none' WHERE name = 'MissionServer';"
-    if ! sudo -H -u "$DB_USER" psql -q -d "FFDB1" -c "$sql_cmd_db1_mission"; then
+    if ! sudo -u "$DB_USER" psql -q -d "FFDB1" -c "$sql_cmd_db1_mission"; then
         echo -e "${RED}[✗] ERROR: Failed to update MissionServer IP in FFDB1.serverstatus.${NC}"
         update_failed=true
     else
@@ -1622,11 +1635,11 @@ create_admin_account() {
 
     echo -e "${BLUE}   >> Inserting into FFMember.tb_user...${NC}"
     local sql_cmd_member_insert="INSERT INTO tb_user (mid, password, pwd) VALUES ('${ADMIN_USERNAME}', '${ADMIN_PASSWORD}', '${ADMIN_PWD_HASH}');"
-    if ! sudo -H -u "$DB_USER" psql -v ON_ERROR_STOP=1 -q -d "FFMember" -c "$sql_cmd_member_insert"; then
+    if ! sudo -u "$DB_USER" psql -v ON_ERROR_STOP=1 -q -d "FFMember" -c "$sql_cmd_member_insert"; then
         echo -e "${RED}[✗] ERROR: Failed to insert admin account into FFMember.tb_user. Does username already exist? Check logs.${NC}"
         creation_failed=true
     else
-        USER_ID=$(sudo -H -u "$DB_USER" psql -v ON_ERROR_STOP=1 -At -d "FFMember" -c "SELECT idnum FROM tb_user WHERE mid = '${ADMIN_USERNAME}';")
+        USER_ID=$(sudo -u "$DB_USER" psql -v ON_ERROR_STOP=1 -At -d "FFMember" -c "SELECT idnum FROM tb_user WHERE mid = '${ADMIN_USERNAME}';")
         if [ -z "$USER_ID" ]; then
              echo -e "${RED}[✗] ERROR: Failed to retrieve idnum for admin user '$ADMIN_USERNAME' from FFMember.tb_user after insert.${NC}"
              creation_failed=true
@@ -1638,7 +1651,7 @@ create_admin_account() {
     if [ "$creation_failed" = false ]; then
         echo -e "${BLUE}   >> Inserting into FFAccount.accounts...${NC}"
         local sql_cmd_account_insert="INSERT INTO accounts (id, username, password) VALUES ('${USER_ID}', '${ADMIN_USERNAME}', '${ADMIN_PASSWORD}');"
-        if ! sudo -H -u "$DB_USER" psql -v ON_ERROR_STOP=1 -q -d "FFAccount" -c "$sql_cmd_account_insert"; then
+        if ! sudo -u "$DB_USER" psql -v ON_ERROR_STOP=1 -q -d "FFAccount" -c "$sql_cmd_account_insert"; then
             echo -e "${RED}[✗] ERROR: Failed to insert admin account into FFAccount.accounts. Check logs.${NC}"
             creation_failed=true
         else
@@ -1649,7 +1662,7 @@ create_admin_account() {
     if [ "$creation_failed" = false ]; then
         echo -e "${BLUE}   >> Updating privileges (pvalues) in FFMember.tb_user...${NC}"
         local sql_cmd_member_priv="UPDATE tb_user SET pvalues = 999999 WHERE idnum = '${USER_ID}';"
-        if ! sudo -H -u "$DB_USER" psql -v ON_ERROR_STOP=1 -q -d "FFMember" -c "$sql_cmd_member_priv"; then
+        if ! sudo -u "$DB_USER" psql -v ON_ERROR_STOP=1 -q -d "FFMember" -c "$sql_cmd_member_priv"; then
             echo -e "${RED}[✗] ERROR: Failed to update admin privileges (pvalues) in FFMember.tb_user. Check logs.${NC}"
             creation_failed=true
         else
@@ -1660,7 +1673,7 @@ create_admin_account() {
     if [ "$creation_failed" = false ]; then
         echo -e "${BLUE}   >> Inserting into FFAccount.gm_tool_accounts...${NC}"
         local sql_cmd_gmtool_insert="INSERT INTO gm_tool_accounts (id, account_name, password, privilege) VALUES ('${USER_ID}', '${ADMIN_USERNAME}', '${ADMIN_PASSWORD}', 5);"
-        if ! sudo -H -u "$DB_USER" psql -v ON_ERROR_STOP=1 -q -d "FFAccount" -c "$sql_cmd_gmtool_insert"; then
+        if ! sudo -u "$DB_USER" psql -v ON_ERROR_STOP=1 -q -d "FFAccount" -c "$sql_cmd_gmtool_insert"; then
             echo -e "${RED}[✗] ERROR: Failed to insert admin account into FFAccount.gm_tool_accounts. Check logs.${NC}"
             creation_failed=true
         else
@@ -1825,9 +1838,9 @@ check_kernel_version() {
     if [ "$KERNEL_VERSION_MAJOR" -ge 6 ]; then
         echo -e "\n${YELLOW}--- Kernel Version Warning ---${NC}"
         echo -e "${YELLOW}[!] WARNING: Your kernel version is ${KERNEL_VERSION_MAJOR}.x ($(uname -r)).${NC}"
-        echo -e "${YELLOW}           This server software was likely designed for older kernels (e.g., 5.x like in Debian 11).${NC}"
-        echo -e "${YELLOW}           You *might* encounter compatibility issues, especially related to the 'vsyscall=emulate' GRUB setting.${NC}"
-        echo -e "${YELLOW}           If you face problems, consider using Debian 11 (Bullseye).${NC}"
+        echo -e "${YELLOW}           This server software was likely designed for older kernels (e.g., 5.x like in Debian 11)."
+        echo -e "${YELLOW}           You *might* encounter compatibility issues, especially related to the 'vsyscall=emulate' GRUB setting."
+        echo -e "${YELLOW}           If you face problems, consider using Debian 11 (Bullseye)."
         read -p "Press Enter to acknowledge and continue, or Ctrl+C to cancel..." dummy
         log_message "User acknowledged kernel version warning (Kernel: $(uname -r))."
     fi
