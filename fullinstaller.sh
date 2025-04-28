@@ -4,6 +4,7 @@ RED='\e[0;31m'
 GREEN='\e[1;32m'
 BLUE='\e[0;36m'
 YELLOW='\e[1;33m'
+MAGENTA='\e[1;35m'
 NC='\e[0m'
 
 DB_VERSION=13
@@ -57,12 +58,12 @@ error_exit() {
              grep -Ei --color=never '^\s*(PermitRootLogin|PasswordAuthentication)' "$ssh_config_file" | tee -a "$LOG_FILE"
          fi
     fi
-    if [[ "$1" == *"Database import failed"* ]] || [[ "$1" == *"Failed to import SQL file"* ]]; then
+    if [[ "$1" == *"Database import failed"* ]] || [[ "$1" == *"Failed to import SQL file"* ]] || [[ "$1" == *"Database creation failed"* ]] || [[ "$1" == *"Failed to drop existing database"* ]]; then
         echo -e "${YELLOW}[*] DEBUG: Checking PostgreSQL connection and databases...${NC}" | tee -a "$LOG_FILE"
         if command -v psql &>/dev/null && [ -n "$DB_USER" ]; then
-             sudo -u "$DB_USER" psql -l >> "$LOG_FILE" 2>&1
+             sudo -u "$DB_USER" psql -lqt >> "$LOG_FILE" 2>&1
              echo -e "${YELLOW}--- List of databases (from psql -l): ---${NC}" | tee -a "$LOG_FILE"
-             sudo -u "$DB_USER" psql -l | grep -E '^\s*(FFAccount|FFDB1|FFMember|postgres)'
+             sudo -u "$DB_USER" psql -lqt | grep -E '^\s*(FFAccount|FFDB1|FFMember|postgres)' | sed 's/^[[:space:]]*//' | tee -a "$LOG_FILE"
         fi
     fi
     exit 1
@@ -180,8 +181,8 @@ log_message "Installer started."
 display_recommendation() {
     echo -e "${YELLOW}
 [*] Notice: It is highly recommended to run this installation on Debian 11 (Bullseye).
-Running on other systems (especially newer kernels like 6.x)
-may lead to compatibility issues or require manual adjustments (like GRUB).
+            Running on other systems (especially newer kernels like 6.x)
+            may lead to compatibility issues or require manual adjustments (like GRUB).
 ${NC}"
     log_message "Displayed OS recommendation."
 }
@@ -1137,7 +1138,7 @@ extract_server_files() {
     local nested_dir_base=$(basename "$INSTALL_DIR")
     local nested_dir_path="$INSTALL_DIR/$nested_dir_base"
 
-    if [ -d "$nested_dir_path" ] && [ ! -d "$INSTALL_DIR/SQL" ]; then
+    if [ -d "$nested_dir_path" ] && [ ! -d "$INSTALL_DIR/SQL" ] && [ -d "$nested_dir_path/SQL" ]; then
         echo -e "${YELLOW}[*] Notice: Detected nested directory structure ($nested_dir_path). Moving contents up...${NC}"
         log_message "Detected nested directory $nested_dir_path, moving contents to $INSTALL_DIR."
         shopt -s dotglob
@@ -1207,12 +1208,24 @@ import_databases() {
     for DB in "${DATABASES[@]}"; do
         echo -e "${BLUE}   >> Preparing database '$DB'...${NC}"
         log_message "Preparing database $DB (dropping if exists, then creating)."
+
         if sudo -u "$DB_USER" psql -lqt | cut -d \| -f 1 | grep -qw "$DB"; then
-            echo -e "${YELLOW}     [*] Database '$DB' exists. Dropping...${NC}"
-            if dropdb --version > /dev/null 2>&1; then
-                 sudo -u "$DB_USER" dropdb "$DB" || error_exit "Failed to drop existing database '$DB' using dropdb."
+            echo -e "${YELLOW}     [*] Database '$DB' exists. Terminating connections and dropping...${NC}"
+            log_message "Database '$DB' exists. Terminating connections..."
+
+            local terminate_sql="SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = '$DB' AND pid <> pg_backend_pid();"
+            if ! sudo -u "$DB_USER" psql -q -d postgres -c "$terminate_sql"; then
+                 echo -e "${YELLOW}[!] Warning: Failed to terminate connections to database '$DB'. Drop might fail.${NC}"
+                 log_message "Warning: Failed to terminate connections to database '$DB'."
             else
-                 sudo -u "$DB_USER" psql -q -c "DROP DATABASE \"$DB\";" || error_exit "Failed to drop existing database '$DB' using psql."
+                 log_message "Terminated connections to database '$DB'."
+                 sleep 2
+            fi
+
+            if dropdb --version > /dev/null 2>&1; then
+                 sudo -u "$DB_USER" dropdb "$DB" || error_exit "Failed to drop existing database '$DB' using dropdb after terminating connections."
+            else
+                 sudo -u "$DB_USER" psql -q -c "DROP DATABASE \"$DB\";" || error_exit "Failed to drop existing database '$DB' using psql after terminating connections."
             fi
              log_message "Dropped existing database '$DB'."
         else
@@ -1702,7 +1715,7 @@ prompt_systemd_service() {
         return
     fi
 
-    echo -e "\n${BLUE}--- Optional: Systemd Service Setup ---${NC}"
+    echo -e "\n${MAGENTA}--- Optional: Systemd Service Setup ---${NC}"
     echo -e "You can set up a systemd service to manage the Aura Kingdom server processes."
     echo -e "This allows using commands like:"
     echo -e "  ${GREEN}systemctl start aurakingdom${NC}"
@@ -1792,7 +1805,7 @@ check_sudo_command
 check_and_manage_ssh
 configure_locales
 
-echo -e "\n${BLUE}--- Network Configuration ---${NC}"
+echo -e "\n${MAGENTA}--- Network Configuration ---${NC}"
 ips=($(ip -4 addr show | grep -oP 'inet \K[\d.]+' | grep -v '^127\.'))
 if [ ${#ips[@]} -eq 0 ]; then
     ips=($(hostname -I | tr ' ' '\n' | grep -E '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$' | grep -v '^127\.'))
@@ -1847,7 +1860,7 @@ check_kernel_version() {
 }
 check_kernel_version
 
-echo -e "\n${BLUE}--- System Preparation ---${NC}"
+echo -e "\n${MAGENTA}--- System Preparation ---${NC}"
 update_packages() {
     echo -e "${BLUE}>> Updating package lists...${NC}"
     if ! retry_command sudo "$PKG_MANAGER" -y -qq update; then
@@ -1871,41 +1884,41 @@ install_packages
 check_and_install_megatools
 check_and_install_xxd
 
-echo -e "\n${BLUE}--- PostgreSQL Setup (Version $DB_VERSION) ---${NC}"
+echo -e "\n${MAGENTA}--- PostgreSQL Setup (Version $DB_VERSION) ---${NC}"
 check_postgresql_version
 configure_postgresql
 secure_postgresql
 
 verify_essential_commands
 
-echo -e "\n${BLUE}--- Firewall Configuration ---${NC}"
+echo -e "\n${MAGENTA}--- Firewall Configuration ---${NC}"
 setup_firewall_rules
 
-echo -e "\n${BLUE}--- Server Files Installation ---${NC}"
+echo -e "\n${MAGENTA}--- Server Files Installation ---${NC}"
 handle_existing_install_dir
 download_server_files
 extract_server_files
 download_start_stop_scripts
 
-echo -e "\n${BLUE}--- Database and File Patching ---${NC}"
+echo -e "\n${MAGENTA}--- Database and File Patching ---${NC}"
 import_databases
 remove_sql_directory
 patch_server_files
 update_database_ips
 
-echo -e "\n${BLUE}--- GRUB Configuration (vsyscall) ---${NC}"
+echo -e "\n${MAGENTA}--- GRUB Configuration (vsyscall) ---${NC}"
 configure_grub
 
-echo -e "\n${BLUE}--- Game Admin Account Setup ---${NC}"
+echo -e "\n${MAGENTA}--- Game Admin Account Setup ---${NC}"
 create_admin_account
 
-echo -e "\n${BLUE}--- Final Steps ---${NC}"
+echo -e "\n${MAGENTA}--- Final Steps ---${NC}"
 echo -e "${BLUE}>> Ensuring correct permissions for $INSTALL_DIR...${NC}"
 chmod -R 755 "$INSTALL_DIR" || echo -e "${YELLOW}[!] Warning: Failed to set final permissions on $INSTALL_DIR.${NC}"
 
 prompt_systemd_service
 
-echo -e "\n${BLUE}--- Installation Summary ---${NC}"
+echo -e "\n${MAGENTA}--- Installation Summary ---${NC}"
 INSTALL_SUCCESS=true
 FAILED_STEPS=()
 for status_key in "${!STATUS[@]}"; do
