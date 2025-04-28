@@ -180,8 +180,8 @@ log_message "Installer started."
 display_recommendation() {
     echo -e "${YELLOW}
 [*] Notice: It is highly recommended to run this installation on Debian 11 (Bullseye).
-            Running on other systems (especially newer kernels like 6.x)
-            may lead to compatibility issues or require manual adjustments (like GRUB).
+Running on other systems (especially newer kernels like 6.x)
+may lead to compatibility issues or require manual adjustments (like GRUB).
 ${NC}"
     log_message "Displayed OS recommendation."
 }
