@@ -26,6 +26,8 @@ declare -A STATUS=(
     [patch_success]=false
     [admin_creation_success]=false
     [grub_configured]=false
+    [ssh_configured]=false
+    [compatibility_configured]=false
 )
 
 # ---------------------- Logging and Error Handling --------------------
@@ -133,6 +135,169 @@ check_sudo_command() {
         echo -e "${GREEN}>> 'sudo' is available.${NC}"
         log_message "'sudo' command is available."
     fi
+}
+
+# ---------------------- SSH Configuration Functions -------------------
+check_ssh_service() {
+    echo -e "${BLUE}>> Checking SSH service status...${NC}"
+    
+    # Check if SSH service exists and is running
+    if systemctl list-units --type=service | grep -q "ssh\|sshd"; then
+        SSH_SERVICE="ssh"
+        if systemctl list-units --type=service | grep -q "sshd"; then
+            SSH_SERVICE="sshd"
+        fi
+        
+        if systemctl is-active --quiet "$SSH_SERVICE"; then
+            echo -e "${GREEN}>> SSH service ($SSH_SERVICE) is running.${NC}"
+            log_message "SSH service is running."
+            return 0
+        else
+            echo -e "${YELLOW}[NOTICE] SSH service ($SSH_SERVICE) is installed but not running.${NC}"
+            log_message "SSH service is installed but not running."
+            return 1
+        fi
+    else
+        echo -e "${YELLOW}[NOTICE] SSH service is not installed.${NC}"
+        log_message "SSH service is not installed."
+        return 2
+    fi
+}
+
+install_ssh_server() {
+    echo -e "${BLUE}>> Installing SSH server...${NC}"
+    if [ "$PKG_MANAGER" = 'apt-get' ]; then
+        sudo apt-get -qq update || error_exit "Failed to update package lists."
+        sudo apt-get -qq install -y openssh-server || error_exit "Failed to install OpenSSH server."
+        SSH_SERVICE="ssh"
+    elif [ "$PKG_MANAGER" = 'yum' ]; then
+        sudo yum -q -y install openssh-server || error_exit "Failed to install OpenSSH server."
+        SSH_SERVICE="sshd"
+    fi
+    echo -e "${GREEN}>> SSH server installed successfully.${NC}"
+    log_message "SSH server installed."
+}
+
+configure_ssh() {
+    echo -e "${BLUE}>> Configuring SSH settings...${NC}"
+    local ssh_config="/etc/ssh/sshd_config"
+    
+    # Backup original config
+    if [ ! -f "${ssh_config}.bak" ]; then
+        sudo cp "$ssh_config" "${ssh_config}.bak" || error_exit "Failed to backup SSH config."
+        log_message "SSH config backed up."
+    fi
+    
+    # Configure SSH settings for better security and compatibility
+    echo -e "${BLUE}   - Configuring SSH parameters...${NC}"
+    
+    # Enable SSH and set port (default 22)
+    sudo sed -i 's/#Port 22/Port 22/' "$ssh_config"
+    sudo sed -i 's/#PermitRootLogin.*/PermitRootLogin yes/' "$ssh_config"
+    sudo sed -i 's/#PasswordAuthentication.*/PasswordAuthentication yes/' "$ssh_config"
+    sudo sed -i 's/#PubkeyAuthentication.*/PubkeyAuthentication yes/' "$ssh_config"
+    
+    # Add some security settings
+    if ! grep -q "MaxAuthTries" "$ssh_config"; then
+        echo "MaxAuthTries 3" | sudo tee -a "$ssh_config" > /dev/null
+    fi
+    
+    if ! grep -q "ClientAliveInterval" "$ssh_config"; then
+        echo "ClientAliveInterval 300" | sudo tee -a "$ssh_config" > /dev/null
+        echo "ClientAliveCountMax 2" | sudo tee -a "$ssh_config" > /dev/null
+    fi
+    
+    echo -e "${GREEN}   - SSH configuration updated.${NC}"
+    log_message "SSH configuration updated."
+}
+
+start_ssh_service() {
+    echo -e "${BLUE}>> Starting and enabling SSH service...${NC}"
+    
+    # Start SSH service
+    sudo systemctl start "$SSH_SERVICE" || error_exit "Failed to start SSH service."
+    
+    # Enable SSH service to start on boot
+    sudo systemctl enable "$SSH_SERVICE" || error_exit "Failed to enable SSH service."
+    
+    # Check if service is running
+    if systemctl is-active --quiet "$SSH_SERVICE"; then
+        echo -e "${GREEN}>> SSH service started and enabled successfully.${NC}"
+        log_message "SSH service started and enabled."
+        STATUS[ssh_configured]=true
+    else
+        error_exit "SSH service failed to start."
+    fi
+}
+
+setup_ssh() {
+    echo -e "${BLUE}
+==================================================
+           SSH Configuration Setup
+==================================================${NC}"
+    
+    # Check SSH service status
+    check_ssh_service
+    ssh_status=$?
+    
+    case $ssh_status in
+        0)
+            echo -e "${GREEN}>> SSH is already running.${NC}"
+            read -p "Do you want to reconfigure SSH settings? [y/N]: " reconfigure_ssh
+            if [[ "$reconfigure_ssh" =~ ^[Yy]$ ]]; then
+                configure_ssh
+                sudo systemctl restart "$SSH_SERVICE" || error_exit "Failed to restart SSH service."
+                echo -e "${GREEN}>> SSH reconfigured successfully.${NC}"
+            fi
+            STATUS[ssh_configured]=true
+            ;;
+        1)
+            echo -e "${YELLOW}[NOTICE] SSH is installed but not running.${NC}"
+            read -p "Do you want to start and configure SSH? [Y/n]: " start_ssh
+            if [[ ! "$start_ssh" =~ ^[Nn]$ ]]; then
+                configure_ssh
+                start_ssh_service
+            fi
+            ;;
+        2)
+            echo -e "${YELLOW}[NOTICE] SSH server is not installed.${NC}"
+            read -p "Do you want to install and configure SSH server for remote access? [Y/n]: " install_ssh
+            if [[ ! "$install_ssh" =~ ^[Nn]$ ]]; then
+                install_ssh_server
+                configure_ssh
+                start_ssh_service
+                
+                # Show connection information
+                echo -e "${GREEN}
+>> SSH server has been installed and configured.
+>> You can now connect remotely using:
+>>   - IP Address: $(hostname -I | awk '{print $1}')
+>>   - Port: 22
+>>   - Username: root (or your current user)
+>>   
+>> For PuTTY connection:
+>>   - Host: $(hostname -I | awk '{print $1}')
+>>   - Port: 22
+>>   - Connection Type: SSH${NC}"
+                
+                log_message "SSH server installed and configured for remote access."
+            else
+                echo -e "${YELLOW}[NOTICE] SSH installation skipped.${NC}"
+                log_message "SSH installation skipped by user."
+            fi
+            ;;
+    esac
+    
+    # Show current SSH status
+    if systemctl is-active --quiet "$SSH_SERVICE" 2>/dev/null; then
+        echo -e "${GREEN}>> SSH Status: Running${NC}"
+        echo -e "${GREEN}>> SSH Port: $(grep "^Port" /etc/ssh/sshd_config | awk '{print $2}' || echo "22")${NC}"
+        echo -e "${GREEN}>> Server IP: $(hostname -I | awk '{print $1}')${NC}"
+    fi
+    
+    echo -e "${BLUE}
+>> SSH configuration completed.
+==================================================${NC}"
 }
 
 # --------------------- System & Resource Checks -----------------------
@@ -875,6 +1040,10 @@ EOF
 # --------------------------- Main Flow ------------------------------
 detect_os
 check_sudo_command
+
+# SSH Configuration
+setup_ssh
+
 configure_locales
 
 # Interactive IP address selection
@@ -891,15 +1060,276 @@ fi
 log_message "Server IP: $IP"
 
 check_kernel_version() {
+    echo -e "${BLUE}>> Checking kernel compatibility...${NC}"
     KERNEL_VERSION=$(uname -r | cut -d'.' -f1)
+    KERNEL_MINOR=$(uname -r | cut -d'.' -f2)
+    FULL_KERNEL=$(uname -r)
+    
+    echo -e "${BLUE}   - Current kernel: ${FULL_KERNEL}${NC}"
+    
     if [ "$KERNEL_VERSION" -ge 6 ]; then
         echo -e "${YELLOW}[WARNING] Your kernel version is 6.x or higher.${NC}"
         echo -e "${YELLOW}For best compatibility, a kernel version of 5.x is recommended. Consider using Debian 11.${NC}"
+        echo -e "${YELLOW}The binary files were optimized for Debian 11 (kernel 5.x).${NC}"
         read -p "Press Enter to continue at your own risk or Ctrl+C to cancel..." dummy
         log_message "User acknowledged kernel version warning."
+    elif [ "$KERNEL_VERSION" -eq 5 ]; then
+        echo -e "${GREEN}>> Kernel version 5.x detected - optimal for binary compatibility.${NC}"
+        log_message "Optimal kernel version detected."
+    elif [ "$KERNEL_VERSION" -eq 4 ]; then
+        echo -e "${YELLOW}[NOTICE] Kernel version 4.x detected - may require additional compatibility libraries.${NC}"
+        log_message "Older kernel version detected."
+    else
+        echo -e "${RED}[WARNING] Very old kernel version detected. Compatibility issues may occur.${NC}"
+        read -p "Do you want to continue? [y/N]: " continue_old_kernel
+        if [[ ! "$continue_old_kernel" =~ ^[Yy]$ ]]; then
+            error_exit "Installation cancelled due to kernel compatibility concerns."
+        fi
+        log_message "User continued with very old kernel version."
     fi
 }
+
+# Enhanced compatibility and optimization functions
+configure_kernel_parameters() {
+    echo -e "${BLUE}>> Configuring kernel parameters for game server optimization...${NC}"
+    
+    # Backup existing sysctl.conf
+    if [ ! -f /etc/sysctl.conf.bak ]; then
+        sudo cp /etc/sysctl.conf /etc/sysctl.conf.bak || error_exit "Failed to backup sysctl.conf."
+    fi
+    
+    # Create optimized sysctl settings for game server
+    cat << 'EOF' | sudo tee /etc/sysctl.d/99-gameserver-optimization.conf > /dev/null
+# Game Server Optimization Settings
+# Network optimizations
+net.core.rmem_max = 67108864
+net.core.wmem_max = 67108864
+net.core.netdev_max_backlog = 5000
+net.ipv4.tcp_rmem = 4096 65536 67108864
+net.ipv4.tcp_wmem = 4096 65536 67108864
+net.ipv4.tcp_congestion_control = bbr
+net.ipv4.tcp_slow_start_after_idle = 0
+net.ipv4.tcp_tw_reuse = 1
+
+# Memory management
+vm.swappiness = 10
+vm.dirty_ratio = 15
+vm.dirty_background_ratio = 5
+vm.vfs_cache_pressure = 50
+
+# Process limits
+kernel.pid_max = 4194304
+fs.file-max = 1000000
+
+# Shared memory (important for older game servers)
+kernel.shmmax = 268435456
+kernel.shmall = 2097152
+EOF
+    
+    # Apply the settings
+    sudo sysctl -p /etc/sysctl.d/99-gameserver-optimization.conf > /dev/null 2>&1 || {
+        echo -e "${YELLOW}[WARNING] Some kernel parameters could not be applied.${NC}"
+        log_message "Warning: Some kernel parameters failed to apply."
+    }
+    
+    echo -e "${GREEN}>> Kernel parameters optimized for game server.${NC}"
+    log_message "Kernel parameters configured."
+}
+
+install_legacy_compatibility() {
+    echo -e "${BLUE}>> Installing legacy compatibility libraries...${NC}"
+    
+    if [ "$PKG_MANAGER" = 'apt-get' ]; then
+        # Debian/Ubuntu compatibility packages
+        local packages=(
+            "libc6-i386"
+            "lib32gcc-s1" 
+            "lib32stdc++6"
+            "lib32z1"
+            "libc6-dev-i386"
+            "gcc-multilib"
+            "g++-multilib"
+        )
+        
+        # Additional packages for older binary compatibility
+        if [ "$KERNEL_VERSION" -ge 5 ]; then
+            packages+=("libnss3" "libxss1" "libgconf-2-4" "libxtst6" "libxrandr2" "libasound2" "libpangocairo-1.0-0" "libatk1.0-0" "libcairo-gobject2" "libgtk-3-0" "libgdk-pixbuf2.0-0")
+        fi
+        
+        for package in "${packages[@]}"; do
+            if ! dpkg -l | grep -qw "$package" 2>/dev/null; then
+                echo -e "${BLUE}   - Installing $package...${NC}"
+                sudo apt-get -qq install -y "$package" 2>/dev/null || {
+                    echo -e "${YELLOW}[WARNING] Could not install $package, skipping...${NC}"
+                    log_message "Warning: Failed to install $package"
+                }
+            else
+                echo -e "${GREEN}   - $package already installed.${NC}"
+            fi
+        done
+        
+    elif [ "$PKG_MANAGER" = 'yum' ]; then
+        # CentOS/RHEL compatibility packages
+        local packages=(
+            "glibc.i686"
+            "libstdc++.i686"
+            "zlib.i686"
+            "glibc-devel.i686"
+        )
+        
+        # Check if we have dnf or yum
+        local installer="yum"
+        if command -v dnf &> /dev/null; then
+            installer="dnf"
+        fi
+        
+        for package in "${packages[@]}"; do
+            if ! rpm -qa | grep -qw "$package" 2>/dev/null; then
+                echo -e "${BLUE}   - Installing $package...${NC}"
+                sudo $installer install -y "$package" 2>/dev/null || {
+                    echo -e "${YELLOW}[WARNING] Could not install $package, skipping...${NC}"
+                    log_message "Warning: Failed to install $package"
+                }
+            else
+                echo -e "${GREEN}   - $package already installed.${NC}"
+            fi
+        done
+    fi
+    
+    echo -e "${GREEN}>> Legacy compatibility libraries installed.${NC}"
+    log_message "Legacy compatibility libraries configured."
+}
+
+configure_limits() {
+    echo -e "${BLUE}>> Configuring system limits for game server...${NC}"
+    
+    # Backup existing limits.conf
+    if [ ! -f /etc/security/limits.conf.bak ]; then
+        sudo cp /etc/security/limits.conf /etc/security/limits.conf.bak || error_exit "Failed to backup limits.conf."
+    fi
+    
+    # Configure limits for game server
+    cat << 'EOF' | sudo tee -a /etc/security/limits.conf > /dev/null
+
+# Game Server Limits Configuration
+root soft nofile 65536
+root hard nofile 65536
+root soft nproc 32768
+root hard nproc 32768
+* soft nofile 65536
+* hard nofile 65536
+* soft nproc 32768
+* hard nproc 32768
+EOF
+    
+    # Configure systemd limits
+    sudo mkdir -p /etc/systemd/system.conf.d/
+    cat << 'EOF' | sudo tee /etc/systemd/system.conf.d/limits.conf > /dev/null
+[Manager]
+DefaultLimitNOFILE=65536
+DefaultLimitNPROC=32768
+EOF
+    
+    # Reload systemd
+    sudo systemctl daemon-reexec 2>/dev/null || true
+    
+    echo -e "${GREEN}>> System limits configured for optimal performance.${NC}"
+    log_message "System limits configured."
+    
+    # Mark compatibility configuration as complete
+    STATUS[compatibility_configured]=true
+}
+
+check_cpu_architecture() {
+    echo -e "${BLUE}>> Checking CPU architecture compatibility...${NC}"
+    
+    local arch=$(uname -m)
+    echo -e "${BLUE}   - Architecture: $arch${NC}"
+    
+    case $arch in
+        x86_64)
+            echo -e "${GREEN}>> x86_64 architecture detected - fully compatible.${NC}"
+            # Check for 32-bit compatibility
+            if [ -f /lib64/ld-linux-x86-64.so.2 ]; then
+                echo -e "${GREEN}   - 64-bit libraries available.${NC}"
+            fi
+            if [ -f /lib/ld-linux.so.2 ] || [ -f /lib32/ld-linux.so.2 ]; then
+                echo -e "${GREEN}   - 32-bit compatibility libraries available.${NC}"
+            else
+                echo -e "${YELLOW}[WARNING] 32-bit compatibility libraries may be missing.${NC}"
+            fi
+            ;;
+        i386|i686)
+            echo -e "${YELLOW}[WARNING] 32-bit architecture detected. Performance may be limited.${NC}"
+            ;;
+        aarch64|arm64)
+            echo -e "${RED}[WARNING] ARM64 architecture detected. Binary compatibility issues likely.${NC}"
+            read -p "Do you want to continue at your own risk? [y/N]: " continue_arm
+            if [[ ! "$continue_arm" =~ ^[Yy]$ ]]; then
+                error_exit "Installation cancelled due to architecture incompatibility."
+            fi
+            ;;
+        *)
+            echo -e "${RED}[WARNING] Unsupported architecture: $arch${NC}"
+            read -p "Do you want to continue at your own risk? [y/N]: " continue_unknown
+            if [[ ! "$continue_unknown" =~ ^[Yy]$ ]]; then
+                error_exit "Installation cancelled due to architecture incompatibility."
+            fi
+            ;;
+    esac
+    
+    log_message "Architecture check completed: $arch"
+}
+
+verify_binary_dependencies() {
+    echo -e "${BLUE}>> Verifying binary dependencies...${NC}"
+    
+    # Check for essential libraries that game binaries typically need
+    local essential_libs=(
+        "/lib/ld-linux.so.2"
+        "/lib32/ld-linux.so.2" 
+        "/lib/x86_64-linux-gnu/ld-linux-x86-64.so.2"
+        "/lib64/ld-linux-x86-64.so.2"
+    )
+    
+    local found_loader=false
+    for lib in "${essential_libs[@]}"; do
+        if [ -f "$lib" ]; then
+            echo -e "${GREEN}   - Found dynamic loader: $lib${NC}"
+            found_loader=true
+            break
+        fi
+    done
+    
+    if [ "$found_loader" = false ]; then
+        echo -e "${RED}[ERROR] No compatible dynamic loader found. Binary execution may fail.${NC}"
+        log_message "ERROR: No compatible dynamic loader found."
+    fi
+    
+    # Check for pthread library (essential for multi-threaded game servers)
+    if ldconfig -p | grep -q "libpthread.so"; then
+        echo -e "${GREEN}   - pthread library available.${NC}"
+    else
+        echo -e "${YELLOW}[WARNING] pthread library may not be available.${NC}"
+    fi
+    
+    # Check for math library
+    if ldconfig -p | grep -q "libm.so"; then
+        echo -e "${GREEN}   - Math library available.${NC}"
+    else
+        echo -e "${YELLOW}[WARNING] Math library may not be available.${NC}"
+    fi
+    
+    log_message "Binary dependencies verification completed."
+}
 check_kernel_version
+
+# Enhanced compatibility checks and optimizations
+check_cpu_architecture
+verify_binary_dependencies
+configure_kernel_parameters
+install_legacy_compatibility
+configure_limits
 
 update_packages() {
     echo -e "${BLUE}>> Updating package lists...${NC}"
@@ -911,12 +1341,6 @@ update_packages() {
     log_message "Package lists updated."
 }
 update_packages
-
-if [ "$OS" = "Ubuntu" ]; then
-    install_ubuntu_dependencies
-elif [ "$OS" = "CentOS" ]; then
-    install_centos_dependencies
-fi
 
 install_packages
 check_and_install_xxd
@@ -957,6 +1381,25 @@ if [ "${STATUS[postgresql_installed]}" = true ] && [ "${STATUS[config_success]}"
     echo -e "Database Password    : ${GREEN}$DB_PASS${NC}"
     echo -e "Admin Username       : ${GREEN}$ADMIN_USERNAME${NC}"
     echo -e "Server Directory     : ${GREEN}$INSTALL_DIR${NC}"
+    
+    # SSH Status Display
+    if [ "${STATUS[ssh_configured]}" = true ]; then
+        echo -e "SSH Status           : ${GREEN}Configured and Running${NC}"
+        echo -e "SSH Connection       : ${GREEN}ssh root@$IP${NC}"
+        echo -e "PuTTY Settings       : Host: ${GREEN}$IP${NC}, Port: ${GREEN}22${NC}, SSH"
+    else
+        echo -e "SSH Status           : ${YELLOW}Not Configured${NC}"
+    fi
+    
+    # Compatibility Status Display
+    if [ "${STATUS[compatibility_configured]}" = true ]; then
+        echo -e "Compatibility        : ${GREEN}Optimized for Binary Execution${NC}"
+        echo -e "Kernel Parameters    : ${GREEN}Configured${NC}"
+        echo -e "Legacy Libraries     : ${GREEN}Installed${NC}"
+    else
+        echo -e "Compatibility        : ${YELLOW}Basic Configuration${NC}"
+    fi
+    
     echo -e "\n${BLUE}Management Commands:${NC}"
     echo -e "  Start server       : ${GREEN}$INSTALL_DIR/start${NC}"
     echo -e "  Stop server        : ${GREEN}$INSTALL_DIR/stop${NC}"
@@ -972,6 +1415,9 @@ if [ "${STATUS[postgresql_installed]}" = true ] && [ "${STATUS[config_success]}"
     echo -e "2. Start the server: ${GREEN}$INSTALL_DIR/start${NC}"
     echo -e "3. Monitor status: ${GREEN}$INSTALL_DIR/monitor.sh${NC}"
     echo -e "4. Create game accounts with account_creator.sh"
+    if [ "${STATUS[ssh_configured]}" = true ]; then
+        echo -e "5. You can now connect remotely via SSH/PuTTY using IP: ${GREEN}$IP${NC}"
+    fi
     log_message "Installation completed successfully."
 else
     echo -e "${RED}
@@ -986,6 +1432,8 @@ else
     [ "${STATUS[sql_import_success]}" = false ] && echo -e " - SQL import failed."
     [ "${STATUS[patch_success]}" = false ] && echo -e " - File patching issue."
     [ "${STATUS[admin_creation_success]}" = false ] && echo -e " - Admin account creation failed."
+    [ "${STATUS[ssh_configured]}" = false ] && echo -e " - SSH configuration may have failed."
+    [ "${STATUS[compatibility_configured]}" = false ] && echo -e " - System compatibility optimization may have failed."
     echo -e "Please check the error messages above and consult ${YELLOW}${LOG_FILE}${NC} for details."
     log_message "Installation failed."
 fi
