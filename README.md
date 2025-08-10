@@ -57,9 +57,9 @@ cd /root && curl -o fullinstaller.sh https://raw.githubusercontent.com/MrDulgan/
 - **Real multi-server instances (same PostgreSQL, different ports)**
 - **Multi-channel support (multiple channels per server)**
 - **Cross-distribution compatibility** optimizations
-- **🆕 Enhanced Server Manager** - Unified management interface
-- **🆕 Auto-database password detection** - No manual entry required
-- **🆕 Instance auto-discovery** - Automatic detection of existing servers
+- **Enhanced Server Manager** - Unified management interface
+- **Auto-database password detection** - No manual entry required
+- **Instance auto-discovery** - Automatic detection of existing servers
 
 ## 🎮 Server Management
 
@@ -91,7 +91,7 @@ The centralized management interface providing professional-grade server adminis
 /root/AKUTools/backup.sh            # Advanced backup system
 /root/AKUTools/restore.sh           # Intelligent restore system
 /root/AKUTools/account_creator.sh   # Game account management
-/root/AKUTools/server_manager.sh    # 🆕 Enhanced Server Manager (unified)
+/root/AKUTools/server_manager.sh    # Enhanced Server Manager
 /root/AKUTools/security_functions.sh # Security management tools
 ```
 
@@ -118,7 +118,7 @@ The centralized management interface providing professional-grade server adminis
 - **Real-time switching** between server instances (`[i]` key)
 - **Quick instance access** (number keys 1-9)
 - **Integrated AKUTools** access (`[a]` key)
-- **Enhanced Server Manager** access (`[s]` key) - 🆕 Unified management
+- **Enhanced Server Manager** access (`[s]` key)
 - **Advanced process monitoring** with crash detection
 - **Resource usage tracking** (CPU, RAM, Network)
 - **Log file integration** and error detection
@@ -199,12 +199,11 @@ systemctl enable aurakingdom          # Auto-start on boot
 ├── stop                       # Server shutdown script
 ├── monitor.sh                 # Enhanced monitoring (multi-server support)
 ├── akutools                   # AKUTools launcher script
-├── backup.sh → /root/AKUTools/backup.sh     # Symlink to AKUTools
-├── restore.sh → /root/AKUTools/restore.sh   # Symlink to AKUTools  
-├── account_creator.sh → /root/AKUTools/account_creator.sh # Symlink
+├── backup.sh                  # Symlink to AKUTools
+├── restore.sh                 # Symlink to AKUTools  
+├── account_creator.sh         # Symlink
 ├── setup.ini                  # Database configuration
 ├── config.ini                 # Game features configuration
-├── config00.ini - config09.ini  # Additional configurations
 ├── .server_pids               # Runtime PID information
 ├── Logs/                      # Log files and backups
 ├── TicketServer/              # Game server components
@@ -219,7 +218,7 @@ systemctl enable aurakingdom          # Auto-start on boot
 ├── backup.sh                  # Advanced backup system
 ├── restore.sh                 # Intelligent restore system
 ├── account_creator.sh         # Game account management
-├── server_manager.sh          # 🆕 Enhanced Server Manager (unified)
+├── server_manager.sh          # Enhanced Server Manager
 ├── security_functions.sh      # Security management tools
 └── server_*.conf              # Server instance configurations
 
