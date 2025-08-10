@@ -199,12 +199,11 @@ systemctl enable aurakingdom          # Auto-start on boot
 ├── stop                       # Server shutdown script
 ├── monitor.sh                 # Enhanced monitoring (multi-server support)
 ├── akutools                   # AKUTools launcher script
-├── backup.sh → /root/AKUTools/backup.sh     # Symlink to AKUTools
-├── restore.sh → /root/AKUTools/restore.sh   # Symlink to AKUTools  
-├── account_creator.sh → /root/AKUTools/account_creator.sh # Symlink
+├── backup.sh                  # Symlink to AKUTools
+├── restore.sh                 # Symlink to AKUTools  
+├── account_creator.sh         # Symlink
 ├── setup.ini                  # Database configuration
 ├── config.ini                 # Game features configuration
-├── config00.ini - config09.ini  # Additional configurations
 ├── .server_pids               # Runtime PID information
 ├── Logs/                      # Log files and backups
 ├── TicketServer/              # Game server components
