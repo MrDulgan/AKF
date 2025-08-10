@@ -708,8 +708,7 @@ download_management_scripts() {
         "backup.sh" 
         "restore.sh"
         "account_creator.sh"
-        "multi_server_manager.sh"
-        "multi_channel_manager.sh"
+        "server_manager.sh"
     )
     
     local base_url="https://raw.githubusercontent.com/MrDulgan/AKF/main"
@@ -769,7 +768,7 @@ download_management_scripts() {
     
     # Create convenience symlinks in server directory
     echo -e "${BLUE}   - Creating convenience shortcuts...${NC}"
-    local symlink_scripts=("monitor.sh" "backup.sh" "restore.sh" "account_creator.sh")
+    local symlink_scripts=("monitor.sh" "backup.sh" "restore.sh" "account_creator.sh" "server_manager.sh")
     for script in "${symlink_scripts[@]}"; do
         if [ -f "$akutools_dir/$script" ]; then
             ln -sf "$akutools_dir/$script" "$INSTALL_DIR/$script" 2>/dev/null || {
@@ -798,21 +797,19 @@ echo -e "  ${BLUE}1.${NC} Monitor Server     (monitor.sh)"
 echo -e "  ${BLUE}2.${NC} Backup Server      (backup.sh)"
 echo -e "  ${BLUE}3.${NC} Restore Server     (restore.sh)"
 echo -e "  ${BLUE}4.${NC} Account Creator    (account_creator.sh)"
-echo -e "  ${BLUE}5.${NC} Multi Server Mgr   (multi_server_manager.sh)"
-echo -e "  ${BLUE}6.${NC} Multi Channel Mgr  (multi_channel_manager.sh)"
-echo -e "  ${BLUE}7.${NC} Open AKUTools Dir"
+echo -e "  ${BLUE}5.${NC} Enhanced Server Mgr (server_manager.sh)"
+echo -e "  ${BLUE}6.${NC} Open AKUTools Dir"
 echo ""
 
-read -p "Select a tool (1-7) or press Enter to exit: " choice
+read -p "Select a tool (1-6) or press Enter to exit: " choice
 
 case $choice in
     1) cd "$AKUTOOLS_DIR" && ./monitor.sh ;;
     2) cd "$AKUTOOLS_DIR" && ./backup.sh ;;
     3) cd "$AKUTOOLS_DIR" && ./restore.sh ;;
     4) cd "$AKUTOOLS_DIR" && ./account_creator.sh ;;
-    5) cd "$AKUTOOLS_DIR" && ./multi_server_manager.sh ;;
-    6) cd "$AKUTOOLS_DIR" && ./multi_channel_manager.sh ;;
-    7) cd "$AKUTOOLS_DIR" && echo -e "${GREEN}You are now in AKUTools directory: $AKUTOOLS_DIR${NC}" && exec bash ;;
+    5) cd "$AKUTOOLS_DIR" && ./server_manager.sh ;;
+    6) cd "$AKUTOOLS_DIR" && echo -e "${GREEN}You are now in AKUTools directory: $AKUTOOLS_DIR${NC}" && exec bash ;;
     "") echo -e "${YELLOW}Exiting AKUTools...${NC}" ;;
     *) echo -e "${YELLOW}Invalid choice. Exiting...${NC}" ;;
 esac
@@ -1630,15 +1627,14 @@ if [ "${STATUS[postgresql_installed]}" = true ] && [ "${STATUS[config_success]}"
     echo -e "\n${BLUE}Management Commands:${NC}"
     echo -e "  Start server       : ${GREEN}$INSTALL_DIR/start${NC}"
     echo -e "  Stop server        : ${GREEN}$INSTALL_DIR/stop${NC}"
-    echo -e "  Enhanced monitor   : ${GREEN}$INSTALL_DIR/monitor.sh${NC} ${CYAN}(with multi-server support)${NC}"
+    echo -e "  Enhanced monitor   : ${GREEN}$INSTALL_DIR/monitor.sh${NC}"
     echo -e "  AKUTools launcher  : ${GREEN}$INSTALL_DIR/akutools${NC}"
     
     echo -e "\n${CYAN}AKUTools Suite (/root/AKUTools):${NC}"
     echo -e "  Server backup      : ${GREEN}/root/AKUTools/backup.sh${NC}"
     echo -e "  Server restore     : ${GREEN}/root/AKUTools/restore.sh${NC}"
     echo -e "  Account creator    : ${GREEN}/root/AKUTools/account_creator.sh${NC}"
-    echo -e "  Multi-server mgr   : ${GREEN}/root/AKUTools/multi_server_manager.sh${NC}"
-    echo -e "  Multi-channel mgr  : ${GREEN}/root/AKUTools/multi_channel_manager.sh${NC}"
+    echo -e "  Enhanced server mgr: ${GREEN}/root/AKUTools/server_manager.sh${NC}"
     if [ "${STATUS[grub_configured]}" = true ]; then
         echo -e "\n${YELLOW}[IMPORTANT] A reboot is required for GRUB changes to take effect.${NC}"
     fi
@@ -1668,6 +1664,7 @@ if [ "${STATUS[postgresql_installed]}" = true ] && [ "${STATUS[config_success]}"
     echo -e "   • Start script now runs in background - terminal stays free"
     echo -e "   • Use enhanced monitor for multi-server/channel management"
     echo -e "   • AKUTools provides centralized management interface"
+    echo -e "   • Enhanced Server Manager: ${GREEN}./server_manager.sh${NC} for unified management"
     echo -e "   • All tools support multi-instance configurations"
     
     if [ "${STATUS[ssh_configured]}" = true ]; then
