@@ -97,22 +97,33 @@ show_system_status() {
     echo -e "${CYAN}🖥️  Server Instances:${NC}"
     
     # Check default instance
-    if [[ -d "$BASE_DIR" && -f "$BASE_DIR/TicketServer" ]]; then
-        ((instance_count++))
-        
-        # Count running servers
-        local instance_running=0
-        for server_type in TicketServer GatewayServer LoginServer MissionServer WorldServer ZoneServer; do
-            if pgrep -f "$BASE_DIR/$server_type" > /dev/null 2>&1; then
-                ((instance_running++))
+    if [[ -d "$BASE_DIR" ]]; then
+        # Check for server executables
+        local has_servers=false
+        for server_file in TicketServer AccountServer LoginServer WorldServer ZoneServer GatewayServer MissionServer; do
+            if [[ -f "$BASE_DIR/$server_file" && -x "$BASE_DIR/$server_file" ]]; then
+                has_servers=true
+                break
             fi
         done
         
-        if [[ $instance_running -gt 0 ]]; then
-            echo -e "${GREEN}   ✓ default - $instance_running servers running${NC}"
-            ((running_count++))
-        else
-            echo -e "${YELLOW}   ○ default - stopped${NC}"
+        if [[ "$has_servers" == "true" ]]; then
+            ((instance_count++))
+            
+            # Count running servers
+            local instance_running=0
+            for server_type in TicketServer GatewayServer LoginServer MissionServer WorldServer ZoneServer; do
+                if pgrep -f "$BASE_DIR/$server_type" > /dev/null 2>&1; then
+                    ((instance_running++))
+                fi
+            done
+            
+            if [[ $instance_running -gt 0 ]]; then
+                echo -e "${GREEN}   ✓ hxsy - $instance_running servers running${NC}"
+                ((running_count++))
+            else
+                echo -e "${YELLOW}   ○ hxsy - stopped${NC}"
+            fi
         fi
         
         # Check channels
@@ -142,25 +153,43 @@ show_system_status() {
         fi
     fi
     
-    # Check additional instances
-    for instance_dir in /root/hxsy_*; do
-        if [[ -d "$instance_dir" && -f "$instance_dir/TicketServer" ]]; then
-            ((instance_count++))
-            local instance_name=$(basename "$instance_dir")
-            
-            # Count running servers
-            local instance_running=0
-            for server_type in TicketServer GatewayServer LoginServer MissionServer WorldServer ZoneServer; do
-                if pgrep -f "$instance_dir/$server_type" > /dev/null 2>&1; then
-                    ((instance_running++))
+    # Check additional instances (hxsy_* and hxsy-*)
+    for instance_dir in /root/hxsy_* /root/hxsy-*; do
+        if [[ -d "$instance_dir" ]]; then
+            # Check for server executables
+            local has_servers=false
+            for server_file in TicketServer AccountServer LoginServer WorldServer ZoneServer GatewayServer MissionServer; do
+                if [[ -f "$instance_dir/$server_file" && -x "$instance_dir/$server_file" ]]; then
+                    has_servers=true
+                    break
                 fi
             done
             
-            if [[ $instance_running -gt 0 ]]; then
-                echo -e "${GREEN}   ✓ $instance_name - $instance_running servers running${NC}"
-                ((running_count++))
-            else
-                echo -e "${YELLOW}   ○ $instance_name - stopped${NC}"
+            if [[ "$has_servers" == "true" ]]; then
+                ((instance_count++))
+                local instance_name=$(basename "$instance_dir")
+                # Clean up instance name
+                if [[ "$instance_name" == hxsy_* ]]; then
+                    instance_name=${instance_name#hxsy_}
+                elif [[ "$instance_name" == hxsy-* ]]; then
+                    instance_name=${instance_name#hxsy-}
+                fi
+                
+                # Count running servers
+                local instance_running=0
+                for server_type in TicketServer GatewayServer LoginServer MissionServer WorldServer ZoneServer; do
+                    if pgrep -f "$instance_dir/$server_type" > /dev/null 2>&1; then
+                        ((instance_running++))
+                    fi
+                done
+                
+                if [[ $instance_running -gt 0 ]]; then
+                    echo -e "${GREEN}   ✓ $instance_name - $instance_running servers running${NC}"
+                    ((running_count++))
+                else
+                    echo -e "${YELLOW}   ○ $instance_name - stopped${NC}"
+                fi
+            fi
             fi
             
             # Check channels

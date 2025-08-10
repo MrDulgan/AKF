@@ -34,19 +34,47 @@ detect_server_instances() {
     echo -e "${BLUE}>> Detecting server instances...${NC}"
     
     # Default instance
-    if [[ -d "$INSTALL_DIR" && -f "$INSTALL_DIR/TicketServer" ]]; then
-        SERVER_INSTANCES["default"]="$INSTALL_DIR"
-        echo -e "${GREEN}   • Found default instance: $INSTALL_DIR${NC}"
+    if [[ -d "$INSTALL_DIR" ]]; then
+        # Check for server executables
+        local has_servers=false
+        for server_file in TicketServer AccountServer LoginServer WorldServer ZoneServer GatewayServer MissionServer; do
+            if [[ -f "$INSTALL_DIR/$server_file" && -x "$INSTALL_DIR/$server_file" ]]; then
+                has_servers=true
+                break
+            fi
+        done
+        
+        if [[ "$has_servers" == "true" ]]; then
+            SERVER_INSTANCES["default"]="$INSTALL_DIR"
+            echo -e "${GREEN}   • Found default instance: $INSTALL_DIR${NC}"
+        fi
     fi
     
-    # Search for additional instances
+    # Search for additional instances (hxsy_* and hxsy-*)
     local instance_count=0
-    for instance_dir in /root/hxsy_*; do
-        if [[ -d "$instance_dir" && -f "$instance_dir/TicketServer" ]]; then
-            local instance_name=$(basename "$instance_dir")
-            SERVER_INSTANCES["$instance_name"]="$instance_dir"
-            echo -e "${GREEN}   • Found instance: $instance_name at $instance_dir${NC}"
-            ((instance_count++))
+    for instance_dir in /root/hxsy_* /root/hxsy-*; do
+        if [[ -d "$instance_dir" ]]; then
+            # Check for server executables
+            local has_servers=false
+            for server_file in TicketServer AccountServer LoginServer WorldServer ZoneServer GatewayServer MissionServer; do
+                if [[ -f "$instance_dir/$server_file" && -x "$instance_dir/$server_file" ]]; then
+                    has_servers=true
+                    break
+                fi
+            done
+            
+            if [[ "$has_servers" == "true" ]]; then
+                local instance_name=$(basename "$instance_dir")
+                # Clean up instance name
+                if [[ "$instance_name" == hxsy_* ]]; then
+                    instance_name=${instance_name#hxsy_}
+                elif [[ "$instance_name" == hxsy-* ]]; then
+                    instance_name=${instance_name#hxsy-}
+                fi
+                SERVER_INSTANCES["$instance_name"]="$instance_dir"
+                echo -e "${GREEN}   • Found instance: $instance_name at $instance_dir${NC}"
+                ((instance_count++))
+            fi
         fi
     done
     

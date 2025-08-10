@@ -29,18 +29,50 @@ export LC_ALL=C
 detect_server_instances() {
     echo -e "${BLUE}>> Detecting server instances...${NC}"
     
-    # Always include the default instance
+    # Always include the default instance if it has server files
     if [[ -d "$INSTALL_DIR" ]]; then
-        SERVER_INSTANCES["default"]="$INSTALL_DIR"
-        echo -e "${GREEN}   - Found default instance: $INSTALL_DIR${NC}"
+        # Check for server executables
+        local has_servers=false
+        for server_file in TicketServer AccountServer LoginServer WorldServer ZoneServer GatewayServer MissionServer; do
+            if [[ -f "$INSTALL_DIR/$server_file" && -x "$INSTALL_DIR/$server_file" ]]; then
+                has_servers=true
+                break
+            fi
+        done
+        
+        if [[ "$has_servers" == "true" ]]; then
+            SERVER_INSTANCES["default"]="$INSTALL_DIR"
+            echo -e "${GREEN}   - Found default instance: $INSTALL_DIR${NC}"
+        else
+            echo -e "${YELLOW}   - Default directory exists but no server executables found${NC}"
+        fi
     fi
     
-    # Check for additional server instances
-    for dir in /root/hxsy*; do
+    # Check for additional server instances (hxsy_* and hxsy-*)
+    for dir in /root/hxsy_* /root/hxsy-*; do
         if [[ -d "$dir" && "$dir" != "$INSTALL_DIR" ]]; then
-            local instance_name=$(basename "$dir")
-            SERVER_INSTANCES["$instance_name"]="$dir"
-            echo -e "${GREEN}   - Found additional instance: $instance_name ($dir)${NC}"
+            # Check for server executables
+            local has_servers=false
+            for server_file in TicketServer AccountServer LoginServer WorldServer ZoneServer GatewayServer MissionServer; do
+                if [[ -f "$dir/$server_file" && -x "$dir/$server_file" ]]; then
+                    has_servers=true
+                    break
+                fi
+            done
+            
+            if [[ "$has_servers" == "true" ]]; then
+                local instance_name=$(basename "$dir")
+                # Clean up instance name (remove hxsy_ or hxsy- prefix)
+                if [[ "$instance_name" == hxsy_* ]]; then
+                    instance_name=${instance_name#hxsy_}
+                elif [[ "$instance_name" == hxsy-* ]]; then
+                    instance_name=${instance_name#hxsy-}
+                fi
+                SERVER_INSTANCES["$instance_name"]="$dir"
+                echo -e "${GREEN}   - Found instance: $instance_name ($dir)${NC}"
+            else
+                echo -e "${YELLOW}   - Directory $dir exists but no server executables found${NC}"
+            fi
         fi
     done
     

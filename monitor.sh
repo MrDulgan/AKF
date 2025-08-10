@@ -24,13 +24,44 @@ REFRESH_INTERVAL=5
 
 # Detect available server instances
 detect_server_instances() {
-    SERVER_INSTANCES["default"]="$DEFAULT_INSTALL_DIR"
+    # Check default instance
+    if [[ -d "$DEFAULT_INSTALL_DIR" ]]; then
+        # Check for server executables
+        local has_servers=false
+        for server_file in TicketServer AccountServer LoginServer WorldServer ZoneServer GatewayServer MissionServer; do
+            if [[ -f "$DEFAULT_INSTALL_DIR/$server_file" && -x "$DEFAULT_INSTALL_DIR/$server_file" ]]; then
+                has_servers=true
+                break
+            fi
+        done
+        
+        if [[ "$has_servers" == "true" ]]; then
+            SERVER_INSTANCES["default"]="$DEFAULT_INSTALL_DIR"
+        fi
+    fi
     
-    # Check for additional server instances
-    for dir in /root/hxsy*; do
+    # Check for additional server instances (hxsy_* and hxsy-*)
+    for dir in /root/hxsy_* /root/hxsy-*; do
         if [[ -d "$dir" && "$dir" != "$DEFAULT_INSTALL_DIR" ]]; then
-            local instance_name=$(basename "$dir")
-            SERVER_INSTANCES["$instance_name"]="$dir"
+            # Check for server executables
+            local has_servers=false
+            for server_file in TicketServer AccountServer LoginServer WorldServer ZoneServer GatewayServer MissionServer; do
+                if [[ -f "$dir/$server_file" && -x "$dir/$server_file" ]]; then
+                    has_servers=true
+                    break
+                fi
+            done
+            
+            if [[ "$has_servers" == "true" ]]; then
+                local instance_name=$(basename "$dir")
+                # Clean up instance name
+                if [[ "$instance_name" == hxsy_* ]]; then
+                    instance_name=${instance_name#hxsy_}
+                elif [[ "$instance_name" == hxsy-* ]]; then
+                    instance_name=${instance_name#hxsy-}
+                fi
+                SERVER_INSTANCES["$instance_name"]="$dir"
+            fi
         fi
     done
     
