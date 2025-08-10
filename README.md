@@ -294,33 +294,6 @@ Created with ❤️ by **Dulgan**
 
 ---
 
-## 📚 **Quick Reference**
-
-### 🚀 **Essential Commands**
-```bash
-# Quick start after installation
-./start                        # Start server (non-blocking)
-./akutools                     # Access management suite
-./monitor.sh                   # Enhanced monitoring
-
-# Multi-server operations
-cd /root/AKUTools
-./multi_server_manager.sh create myserver
-./monitor.sh                   # Switch between instances with 'i'
-
-# System management
-systemctl status aurakingdom   # If systemd service installed
-tail -f /root/hxsy/Logs/startup/*.log  # View startup logs
-```
-
-### 🔧 **Configuration Files**
-```bash
-/etc/sysctl.d/99-gameserver-optimization.conf  # Kernel parameters
-/etc/security/limits.conf                       # Process limits
-/root/hxsy/setup.ini                            # Database config
-/root/AKUTools/server_*.conf                    # Server instances
-```
-
 ---
 
 *For detailed installation process, troubleshooting guides, and advanced configuration options, check the comprehensive logs and documentation generated during installation.*
