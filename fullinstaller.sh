@@ -1650,21 +1650,18 @@ if [ "${STATUS[postgresql_installed]}" = true ] && [ "${STATUS[config_success]}"
         echo -e "   - Run: ${GREEN}sudo update-grub${NC} or ${GREEN}sudo grub2-mkconfig -o /boot/grub2/grub.cfg${NC}"
         echo -e "   - Then: ${YELLOW}REBOOT YOUR SERVER${NC}"
         echo -e "2. Start the server: ${GREEN}$INSTALL_DIR/start${NC}"
-        echo -e "3. Monitor with enhanced tools: ${GREEN}$INSTALL_DIR/monitor.sh${NC}"
-        echo -e "4. Access AKUTools: ${GREEN}$INSTALL_DIR/akutools${NC}"
-        echo -e "5. Create game accounts: ${GREEN}/root/AKUTools/account_creator.sh${NC}"
+        echo -e "3. Access AKUTools: ${GREEN}$INSTALL_DIR/akutools${NC}"
     else
         echo -e "1. Start the server: ${GREEN}$INSTALL_DIR/start${NC}"
-        echo -e "2. Monitor with enhanced tools: ${GREEN}$INSTALL_DIR/monitor.sh${NC}"
-        echo -e "3. Access AKUTools: ${GREEN}$INSTALL_DIR/akutools${NC}"
-        echo -e "4. Create game accounts: ${GREEN}/root/AKUTools/account_creator.sh${NC}"
+        echo -e "2. Access AKUTools: ${GREEN}$INSTALL_DIR/akutools${NC}"
     fi
     
     echo -e "\n${CYAN}💡 Pro Tips:${NC}"
     echo -e "   • Start script now runs in background - terminal stays free"
     echo -e "   • Use enhanced monitor for multi-server/channel management"
     echo -e "   • AKUTools provides centralized management interface"
-    echo -e "   • Enhanced Server Manager: ${GREEN}./server_manager.sh${NC} for unified management"
+    echo -e "   • Enhanced Server Manager: ${GREEN}./server_manager.sh${NC} for server management"
+    echo -e "   • Enhanced Channel Manager: Batch create channels with smart analysis"
     echo -e "   • All tools support multi-instance configurations"
     
     if [ "${STATUS[ssh_configured]}" = true ]; then

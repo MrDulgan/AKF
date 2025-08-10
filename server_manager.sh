@@ -54,6 +54,7 @@ initialize() {
 
 # Auto-detect database password from setup.ini
 auto_detect_db_password() {
+    # First try default setup.ini
     if [[ -f "$SETUP_INI" ]]; then
         DB_PASSWORD=$(grep "^AccountDBPW=" "$SETUP_INI" | cut -d'=' -f2- | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
         if [[ -n "$DB_PASSWORD" ]]; then
@@ -62,8 +63,17 @@ auto_detect_db_password() {
         fi
     fi
     
+    # Try main hxsy directory
+    if [[ -f "/root/hxsy/setup.ini" ]]; then
+        DB_PASSWORD=$(grep "^AccountDBPW=" "/root/hxsy/setup.ini" | cut -d'=' -f2- | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+        if [[ -n "$DB_PASSWORD" ]]; then
+            echo -e "${GREEN}>> Database password found from /root/hxsy/setup.ini${NC}"
+            return 0
+        fi
+    fi
+    
     # Fallback: try to find from any instance
-    for instance_dir in /root/hxsy*; do
+    for instance_dir in /root/hxsy* /root/*/; do
         if [[ -f "$instance_dir/setup.ini" ]]; then
             DB_PASSWORD=$(grep "^AccountDBPW=" "$instance_dir/setup.ini" | cut -d'=' -f2- | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
             if [[ -n "$DB_PASSWORD" ]]; then
@@ -86,11 +96,21 @@ detect_server_instances() {
     SERVER_INSTANCES=()
     SERVER_DATABASES=()
     
-    # Default instance
+    # Default instance (hxsy)
     if [[ -d "$BASE_DIR/$BASE_NAME" && -f "$BASE_DIR/$BASE_NAME/TicketServer" ]]; then
-        SERVER_INSTANCES["default"]="$BASE_DIR/$BASE_NAME"
-        SERVER_DATABASES["default"]="FFAccount"
-        echo -e "${GREEN}   • Found default instance: $BASE_DIR/$BASE_NAME${NC}"
+        SERVER_INSTANCES["hxsy"]="$BASE_DIR/$BASE_NAME"
+        
+        # Try to detect database name from setup.ini
+        local db_name="FFAccount"
+        if [[ -f "$BASE_DIR/$BASE_NAME/setup.ini" ]]; then
+            local detected_db=$(grep "^AccountDBName=" "$BASE_DIR/$BASE_NAME/setup.ini" | cut -d'=' -f2- | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+            if [[ -n "$detected_db" ]]; then
+                db_name="$detected_db"
+            fi
+        fi
+        
+        SERVER_DATABASES["hxsy"]="$db_name"
+        echo -e "${GREEN}   • Found main instance: hxsy at $BASE_DIR/$BASE_NAME (DB: $db_name)${NC}"
     fi
     
     # Named instances (hxsy_*)
@@ -473,6 +493,197 @@ create_channel() {
 ==================================================${NC}"
 }
 
+# Enhanced Channel Manager - Intelligent batch channel creation
+create_channels_batch() {
+    echo -e "${PURPLE}
+==================================================
+         Enhanced Channel Manager
+    Intelligent Batch Channel Creation
+==================================================${NC}"
+    
+    if [[ -z "$DB_PASSWORD" ]]; then
+        echo -e "${RED}>> Database password not available. Cannot create channels.${NC}"
+        return 1
+    fi
+    
+    # Select server instance
+    if [[ ${#SERVER_INSTANCES[@]} -eq 0 ]]; then
+        echo -e "${RED}>> No server instances found.${NC}"
+        return 1
+    elif [[ ${#SERVER_INSTANCES[@]} -eq 1 ]]; then
+        # Only one instance, use it
+        for instance in "${!SERVER_INSTANCES[@]}"; do
+            selected_instance="$instance"
+            selected_path="${SERVER_INSTANCES[$instance]}"
+            selected_db="${SERVER_DATABASES[$instance]}"
+            break
+        done
+        echo -e "${GREEN}>> Using instance: $selected_instance${NC}"
+    else
+        # Multiple instances, let user choose
+        echo -e "${BLUE}>> Available server instances:${NC}"
+        local -a instance_list=()
+        local counter=1
+        for instance in "${!SERVER_INSTANCES[@]}"; do
+            echo -e "${GREEN}   $counter. $instance (${SERVER_INSTANCES[$instance]})${NC}"
+            instance_list+=("$instance")
+            ((counter++))
+        done
+        
+        read -p "Select server instance (1-${#instance_list[@]}): " choice
+        if [[ ! "$choice" =~ ^[0-9]+$ ]] || [[ "$choice" -lt 1 ]] || [[ "$choice" -gt ${#instance_list[@]} ]]; then
+            echo -e "${RED}>> Invalid selection.${NC}"
+            return 1
+        fi
+        
+        selected_instance="${instance_list[$((choice-1))]}"
+        selected_path="${SERVER_INSTANCES[$selected_instance]}"
+        selected_db="${SERVER_DATABASES[$selected_instance]}"
+    fi
+    
+    echo -e "${BLUE}>> Selected instance: $selected_instance${NC}"
+    echo -e "${BLUE}>> Instance path: $selected_path${NC}"
+    echo -e "${BLUE}>> Database: $selected_db${NC}"
+    
+    # Check existing channels
+    echo -e "${BLUE}>> Analyzing existing channels...${NC}"
+    local existing_channels=()
+    local max_existing=0
+    
+    for channel_dir in "$selected_path"/Channel_*; do
+        if [[ -d "$channel_dir" ]]; then
+            local channel_name=$(basename "$channel_dir")
+            local channel_num=$(echo "$channel_name" | sed 's/Channel_0*//')
+            existing_channels+=("$channel_num")
+            if [[ "$channel_num" -gt "$max_existing" ]]; then
+                max_existing="$channel_num"
+            fi
+        fi
+    done
+    
+    if [[ ${#existing_channels[@]} -gt 0 ]]; then
+        echo -e "${GREEN}>> Found ${#existing_channels[@]} existing channels: ${existing_channels[*]}${NC}"
+        echo -e "${BLUE}>> Highest channel number: $max_existing${NC}"
+    else
+        echo -e "${YELLOW}>> No existing channels found.${NC}"
+    fi
+    
+    # Get desired total channel count
+    echo -e "${CYAN}>> How many channels do you want in total?${NC}"
+    read -p "Enter total channel count (1-50): " total_channels
+    if [[ ! "$total_channels" =~ ^[0-9]+$ ]] || [[ "$total_channels" -lt 1 ]] || [[ "$total_channels" -gt 50 ]]; then
+        echo -e "${RED}>> Invalid channel count. Must be between 1-50.${NC}"
+        return 1
+    fi
+    
+    # Smart analysis
+    local channels_to_create=()
+    local creation_count=0
+    
+    echo -e "${BLUE}>> Analyzing what needs to be created...${NC}"
+    
+    for ((i=1; i<=total_channels; i++)); do
+        local channel_name="Channel_$(printf "%02d" $i)"
+        local channel_path="$selected_path/$channel_name"
+        
+        if [[ ! -d "$channel_path" ]]; then
+            channels_to_create+=("$i")
+            ((creation_count++))
+        fi
+    done
+    
+    if [[ $creation_count -eq 0 ]]; then
+        echo -e "${GREEN}>> All $total_channels channels already exist! Nothing to create.${NC}"
+        return 0
+    fi
+    
+    echo -e "${YELLOW}>> Channels to create: ${channels_to_create[*]}${NC}"
+    echo -e "${CYAN}>> Will create $creation_count new channels.${NC}"
+    
+    read -p "Continue with batch channel creation? (y/N): " confirm
+    if [[ "$confirm" != "y" && "$confirm" != "Y" ]]; then
+        echo -e "${YELLOW}>> Batch channel creation cancelled.${NC}"
+        return 1
+    fi
+    
+    # Create channels
+    echo -e "${PURPLE}>> Starting batch channel creation...${NC}"
+    local success_count=0
+    local failed_channels=()
+    
+    for channel_num in "${channels_to_create[@]}"; do
+        echo -e "${BLUE}>> Creating Channel $channel_num...${NC}"
+        
+        local channel_name="Channel_$(printf "%02d" $channel_num)"
+        local channel_path="$selected_path/$channel_name"
+        
+        # Calculate channel parameters
+        local params=($(calculate_channel_params "$channel_num"))
+        local world_id="${params[0]}"
+        local port="${params[1]}"
+        local zone_id="${params[2]}"
+        local world_name="$BASE_WORLD_NAME-Ch$(printf "%02d" $channel_num)"
+        
+        # Create channel directory
+        mkdir -p "$channel_path"
+        
+        # Copy required files
+        if cp "$selected_path/WorldServer" "$channel_path/" 2>/dev/null && \
+           cp "$selected_path/ZoneServer" "$channel_path/" 2>/dev/null && \
+           cp "$selected_path/"*.ini "$channel_path/" 2>/dev/null && \
+           cp "$selected_path/"*.so* "$channel_path/" 2>/dev/null; then
+            
+            # Create channel-specific setup.ini
+            if [[ -f "$channel_path/setup.ini" ]]; then
+                sed -i "s/^WorldServerPort=.*/WorldServerPort=$port/" "$channel_path/setup.ini"
+                sed -i "s/^ZoneServerID=.*/ZoneServerID=$zone_id/" "$channel_path/setup.ini"
+                
+                # Add channel-specific database name if different
+                if [[ "$selected_db" != "FFAccount" ]]; then
+                    sed -i "s/^AccountDBName=.*/AccountDBName=$selected_db/" "$channel_path/setup.ini"
+                fi
+            fi
+            
+            # Add to database
+            PGPASSWORD="$DB_PASSWORD" psql -U "$DB_USER" -h localhost -d "$selected_db" -c "
+            INSERT INTO worlds (world_id, world_name, world_ip, world_port, world_max_user, world_order) 
+            VALUES ($world_id, '$world_name', '127.0.0.1', $port, 1000, $channel_num)
+            ON CONFLICT (world_id) DO UPDATE SET 
+                world_name = '$world_name',
+                world_port = $port,
+                world_order = $channel_num;
+            " >/dev/null 2>&1
+            
+            if [[ $? -eq 0 ]]; then
+                echo -e "${GREEN}   ✓ Channel $channel_num created successfully${NC}"
+                ((success_count++))
+            else
+                echo -e "${YELLOW}   ⚠ Channel $channel_num created but database update failed${NC}"
+                failed_channels+=("$channel_num")
+                ((success_count++))
+            fi
+        else
+            echo -e "${RED}   ✗ Failed to create Channel $channel_num${NC}"
+            failed_channels+=("$channel_num")
+        fi
+    done
+    
+    # Results summary
+    echo -e "${PURPLE}
+==================================================
+         Batch Channel Creation Results
+==================================================${NC}"
+    echo -e "${GREEN}>> Successfully created: $success_count channels${NC}"
+    echo -e "${BLUE}>> Total channels now: $total_channels${NC}"
+    
+    if [[ ${#failed_channels[@]} -gt 0 ]]; then
+        echo -e "${YELLOW}>> Issues with channels: ${failed_channels[*]}${NC}"
+    fi
+    
+    echo -e "${CYAN}>> Use './start' to start all servers and channels${NC}"
+    echo -e "${PURPLE}==================================================${NC}"
+}
+
 # List all instances and channels
 list_instances() {
     echo -e "${BLUE}
@@ -718,15 +929,16 @@ show_main_menu() {
           AKF Enhanced Server Manager
 ==================================================
 ${GREEN}1.${NC} Create New Server Instance
-${GREEN}2.${NC} Create New Channel
-${GREEN}3.${NC} List All Instances & Channels
-${GREEN}4.${NC} Remove Server Instance
-${GREEN}5.${NC} Remove Channel
-${GREEN}6.${NC} Refresh Detection
+${GREEN}2.${NC} Create Single Channel
+${GREEN}3.${NC} Enhanced Channel Manager (Batch)
+${GREEN}4.${NC} List All Instances & Channels
+${GREEN}5.${NC} Remove Server Instance
+${GREEN}6.${NC} Remove Channel
+${GREEN}7.${NC} Refresh Detection
 ${GREEN}0.${NC} Exit
 ==================================================${NC}"
         
-        read -p "Select option (0-6): " choice
+        read -p "Select option (0-7): " choice
         
         case "$choice" in
             1)
@@ -736,15 +948,18 @@ ${GREEN}0.${NC} Exit
                 create_channel
                 ;;
             3)
-                list_instances
+                create_channels_batch
                 ;;
             4)
-                remove_server_instance
+                list_instances
                 ;;
             5)
-                remove_channel
+                remove_server_instance
                 ;;
             6)
+                remove_channel
+                ;;
+            7)
                 echo -e "${BLUE}>> Refreshing detection...${NC}"
                 detect_server_instances
                 load_server_config

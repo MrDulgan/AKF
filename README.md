@@ -103,14 +103,38 @@ The centralized management interface providing professional-grade server adminis
 # Launch Enhanced Server Manager
 /root/hxsy/server_manager.sh
 
-# Features:
+# Core Features:
 • Auto-detects database password from setup.ini
 • Multi-server instance creation and management
-• Multi-channel support for any server instance  
+• Enhanced Channel Manager - Intelligent batch channel creation
 • Instance auto-discovery and switching
 • Database integration with automatic setup
 • Server/channel removal with safety checks
 • Unified management interface
+```
+
+### 🚀 **Enhanced Channel Manager**
+
+```bash
+# Launch Enhanced Channel Manager
+./server_manager.sh → Enhanced Channel Manager (Batch)
+
+# Smart Features:
+• "How many channels do you want?" - Just specify total count
+• Automatically creates missing channels (e.g., if 4 exist, need 8 → creates 5-8)
+• Intelligent analysis of existing channels
+• Batch creation with progress tracking
+• Error handling and rollback protection
+• Database integration with auto-configuration
+• Support for any server instance (hxsy, hxsy_pvp, custom names)
+```
+
+**Example Workflow:**
+```bash
+Current channels: 1, 2, 3, 4
+User wants: 8 channels total
+System creates: 5, 6, 7, 8 automatically
+Result: Complete 1-8 channel setup
 ```
 
 ### 📊 **Enhanced Monitoring Features**
@@ -134,14 +158,18 @@ The centralized management interface providing professional-grade server adminis
 ./server_manager.sh → Create New Server Instance → pvp_server
 ./server_manager.sh → Create New Server Instance → pve_server
 
-# Create channels for any instance  
-./server_manager.sh → Create New Channel → Select Instance → Channel Number
+# Single channel creation
+./server_manager.sh → Create Single Channel → Select Instance → Channel Number
+
+# Batch channel creation (NEW!)
+./server_manager.sh → Enhanced Channel Manager (Batch) → Total Count
 
 # Features:
 • Auto-detects PostgreSQL password from setup.ini
 • Instance auto-discovery (all existing servers)
 • Database auto-creation and configuration
 • Port management with conflict detection
+• Enhanced Channel Manager with batch creation
 • Safety checks and validation
 • Unified removal with database cleanup
 ```
