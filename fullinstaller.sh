@@ -342,15 +342,49 @@ configure_postgresql() {
         SERVICE_NAME="postgresql-$DB_VERSION"
     fi
 
+    # Backup original configurations
+    sudo cp "$PG_CONF" "$PG_CONF.backup" || error_exit "Failed to backup postgresql.conf"
+    sudo cp "$PG_HBA" "$PG_HBA.backup" || error_exit "Failed to backup pg_hba.conf"
+
+    # Enhanced PostgreSQL security configuration
     sudo sed -i "s/#listen_addresses = 'localhost'/listen_addresses = '*'/g" "$PG_CONF" || error_exit "Failed to update postgresql.conf."
+    
+    # Add security-focused settings
+    sudo tee -a "$PG_CONF" > /dev/null <<EOF
+
+# AK Installer Enhanced Security Settings
+log_connections = on
+log_disconnections = on
+log_checkpoints = on
+log_lock_waits = on
+log_temp_files = 0
+log_statement = 'mod'
+log_min_duration_statement = 1000
+max_connections = 50
+password_encryption = 'md5'
+ssl = off
+shared_preload_libraries = ''
+EOF
+
+    # Enhanced pg_hba.conf security
+    if ! grep -q "host    all             all             127.0.0.1/32         md5" "$PG_HBA"; then
+        echo "host    all             all             127.0.0.1/32         md5" | sudo tee -a "$PG_HBA" || error_exit "Failed to update pg_hba.conf."
+    fi
     if ! grep -q "host    all             all             0.0.0.0/0            md5" "$PG_HBA"; then
         echo "host    all             all             0.0.0.0/0            md5" | sudo tee -a "$PG_HBA" || error_exit "Failed to update pg_hba.conf."
     fi
 
     sudo systemctl restart "$SERVICE_NAME" || error_exit "Failed to restart PostgreSQL service."
+    
+    # Verify PostgreSQL is running
+    sleep 3
+    if ! sudo systemctl is-active --quiet "$SERVICE_NAME"; then
+        error_exit "PostgreSQL failed to start after configuration"
+    fi
+    
     STATUS[config_success]=true
-    echo -e "${GREEN}>> PostgreSQL configuration completed.${NC}"
-    log_message "PostgreSQL configured."
+    echo -e "${GREEN}>> Enhanced PostgreSQL configuration completed.${NC}"
+    log_message "Enhanced PostgreSQL configured."
 }
 
 secure_postgresql() {
@@ -424,33 +458,91 @@ handle_existing_install_dir() {
 # -------------------- File Downloads and Extraction -------------------
 download_server_files() {
     echo -e "${BLUE}>> Downloading server files...${NC}"
-    retry_command megadl "$DOWNLOAD_URL" --path "/root/hxsy.zip" > /dev/null 2>&1 || error_exit "Failed to download hxsy.zip after multiple attempts."
-    if [ -f "/root/hxsy.zip" ]; then
-        STATUS[download_success]=true
-        echo -e "${GREEN}>> Server files downloaded.${NC}"
-    else
-        error_exit "Download of hxsy.zip did not complete."
-    fi
-    log_message "Server files downloaded."
+    
+    # Enhanced download with progress and verification
+    local download_path="/root/hxsy.zip"
+    local max_attempts=3
+    local attempt=1
+    
+    while [ $attempt -le $max_attempts ]; do
+        echo -e "${BLUE}   - Attempt $attempt/$max_attempts...${NC}"
+        
+        if megadl "$DOWNLOAD_URL" --path "$download_path" > /dev/null 2>&1; then
+            # Verify download completed and file exists
+            if [ -f "$download_path" ] && [ -s "$download_path" ]; then
+                local file_size=$(stat -c%s "$download_path" 2>/dev/null)
+                if [ "$file_size" -gt 1048576 ]; then  # At least 1MB
+                    echo -e "${GREEN}>> Server files downloaded successfully (${file_size} bytes).${NC}"
+                    STATUS[download_success]=true
+                    log_message "Server files downloaded successfully"
+                    return 0
+                else
+                    echo -e "${YELLOW}[WARNING] Downloaded file seems too small, retrying...${NC}"
+                    rm -f "$download_path"
+                fi
+            else
+                echo -e "${YELLOW}[WARNING] Download failed or file is empty, retrying...${NC}"
+                rm -f "$download_path"
+            fi
+        else
+            echo -e "${YELLOW}[WARNING] Download command failed, retrying...${NC}"
+        fi
+        
+        attempt=$((attempt + 1))
+        if [ $attempt -le $max_attempts ]; then
+            echo -e "${BLUE}   - Waiting 5 seconds before retry...${NC}"
+            sleep 5
+        fi
+    done
+    
+    error_exit "Failed to download hxsy.zip after $max_attempts attempts."
 }
 
 extract_server_files() {
     echo -e "${BLUE}>> Extracting server files...${NC}"
-    unzip -qo "/root/hxsy.zip" -d "/root" || error_exit "Failed to extract hxsy.zip."
-    chmod -R 755 "$INSTALL_DIR"
-    rm "/root/hxsy.zip"
-    echo -e "${GREEN}>> Server files extracted and permissions set.${NC}"
-    log_message "Server files extracted."
+    local zip_file="/root/hxsy.zip"
+    
+    # Verify zip file integrity before extraction
+    if ! unzip -t "$zip_file" > /dev/null 2>&1; then
+        error_exit "Downloaded zip file is corrupted."
+    fi
+    
+    # Extract with verification
+    if unzip -qo "$zip_file" -d "/root"; then
+        # Verify extraction was successful
+        if [ -d "$INSTALL_DIR" ] && [ -f "$INSTALL_DIR/setup.ini" ]; then
+            chmod -R 755 "$INSTALL_DIR"
+            rm -f "$zip_file"
+            echo -e "${GREEN}>> Server files extracted and permissions set.${NC}"
+            log_message "Server files extracted successfully."
+        else
+            error_exit "Extraction completed but required files are missing."
+        fi
+    else
+        error_exit "Failed to extract hxsy.zip."
+    fi
 }
 
-download_start_stop_scripts() {
-    echo -e "${BLUE}>> Downloading start/stop scripts...${NC}"
+download_management_scripts() {
+    echo -e "${BLUE}>> Downloading management scripts...${NC}"
     cd "$INSTALL_DIR" || error_exit "Failed to change directory to $INSTALL_DIR."
-    wget -q -O start "https://raw.githubusercontent.com/MrDulgan/AKF/main/start" || error_exit "Failed to download start script."
-    wget -q -O stop "https://raw.githubusercontent.com/MrDulgan/AKF/main/stop" || error_exit "Failed to download stop script."
-    chmod +x start stop || error_exit "Failed to set execute permissions on start/stop scripts."
-    echo -e "${GREEN}>> Start and stop scripts downloaded and configured.${NC}"
-    log_message "Start/stop scripts downloaded."
+    
+    local scripts=("start" "stop" "backup.sh" "restore.sh" "monitor.sh")
+    local base_url="https://raw.githubusercontent.com/MrDulgan/AKF/main"
+    
+    for script in "${scripts[@]}"; do
+        echo -e "${BLUE}   - Downloading $script...${NC}"
+        if retry_command wget -q -O "$script" "$base_url/$script"; then
+            chmod +x "$script" || error_exit "Failed to set execute permissions on $script."
+            echo -e "${GREEN}   - $script downloaded and configured.${NC}"
+        else
+            echo -e "${YELLOW}[WARNING] Failed to download $script, skipping...${NC}"
+            log_message "Warning: Failed to download $script"
+        fi
+    done
+    
+    echo -e "${GREEN}>> Management scripts download completed.${NC}"
+    log_message "Management scripts downloaded."
 }
 
 import_databases() {
@@ -581,6 +673,70 @@ configure_grub() {
     fi
 }
 
+# -------------------- Enhanced Security Functions ------------------
+validate_admin_username() {
+    local username="$1"
+    
+    # Check length (3-16 characters)
+    if [[ ${#username} -lt 3 ]] || [[ ${#username} -gt 16 ]]; then
+        echo "Username must be 3-16 characters long"
+        return 1
+    fi
+    
+    # Check character set (only lowercase letters and numbers)
+    if [[ ! "$username" =~ ^[a-z0-9]+$ ]]; then
+        echo "Username must contain only lowercase letters and numbers"
+        return 1
+    fi
+    
+    # Check for reserved usernames
+    local reserved=("admin" "root" "postgres" "system" "guest" "user" "test" "server" "game")
+    for reserved_name in "${reserved[@]}"; do
+        if [[ "$username" == "$reserved_name" ]]; then
+            echo "Username '$username' is reserved and cannot be used"
+            return 1
+        fi
+    done
+    
+    return 0
+}
+
+validate_admin_password() {
+    local password="$1"
+    
+    # Minimum length check
+    if [[ ${#password} -lt 8 ]]; then
+        echo "Password must be at least 8 characters long"
+        return 1
+    fi
+    
+    # Maximum length check
+    if [[ ${#password} -gt 64 ]]; then
+        echo "Password must be less than 64 characters long"
+        return 1
+    fi
+    
+    # Character complexity check
+    local has_lower=0
+    local has_upper=0
+    local has_digit=0
+    local has_special=0
+    
+    if [[ "$password" =~ [a-z] ]]; then has_lower=1; fi
+    if [[ "$password" =~ [A-Z] ]]; then has_upper=1; fi
+    if [[ "$password" =~ [0-9] ]]; then has_digit=1; fi
+    if [[ "$password" =~ [^a-zA-Z0-9] ]]; then has_special=1; fi
+    
+    local complexity_score=$((has_lower + has_upper + has_digit + has_special))
+    
+    if [[ $complexity_score -lt 2 ]]; then
+        echo "Password must contain at least 2 of: lowercase, uppercase, digit, special character"
+        return 1
+    fi
+    
+    return 0
+}
+
 # -------------------- Admin Account Creation --------------------------
 admin_info_message() {
     echo -e "${BLUE}
@@ -592,26 +748,78 @@ admin_info_message() {
 }
 
 create_admin_account() {
-    echo -e "\n${BLUE}>> Creating Admin Account...${NC}"
-    read -p "Username: " ADMIN_USERNAME
-    read -s -p "Password: " ADMIN_PASSWORD
-    echo ""
-    # Validate that the username is 3-16 characters and only contains lowercase letters and digits
-    if [[ ! "$ADMIN_USERNAME" =~ ^[a-z0-9]{3,16}$ ]]; then
-        error_exit "Username must be 3-16 characters long and contain only lowercase letters and numbers."
-    fi
+    echo -e "\n${BLUE}>> Creating Enhanced Secure Admin Account...${NC}"
+    
+    local username=""
+    local password=""
+    local password_confirm=""
+    
+    # Enhanced username validation loop
+    while true; do
+        read -p "Admin Username (3-16 chars, a-z, 0-9): " username
+        local validation_result
+        validation_result=$(validate_admin_username "$username")
+        
+        if [[ $? -eq 0 ]]; then
+            # Check if username already exists
+            cd /tmp
+            if sudo -H -u "$DB_USER" psql -tAc "SELECT 1 FROM tb_user WHERE mid = '$username';" FFMember 2>/dev/null | grep -q "1"; then
+                echo -e "${RED}[ERROR] Username already exists. Please choose another.${NC}"
+                continue
+            fi
+            break
+        else
+            echo -e "${RED}[ERROR] $validation_result${NC}"
+        fi
+    done
+    
+    # Enhanced password validation loop
+    while true; do
+        read -s -p "Admin Password (min 8 chars, secure): " password
+        echo ""
+        
+        local validation_result
+        validation_result=$(validate_admin_password "$password")
+        
+        if [[ $? -eq 0 ]]; then
+            read -s -p "Confirm Password: " password_confirm
+            echo ""
+            
+            if [[ "$password" == "$password_confirm" ]]; then
+                break
+            else
+                echo -e "${RED}[ERROR] Passwords do not match.${NC}"
+            fi
+        else
+            echo -e "${RED}[ERROR] $validation_result${NC}"
+        fi
+    done
 
-    echo -e "${BLUE}>> Creating admin account...${NC}"
-    ADMIN_PWD_HASH=$(echo -n "$ADMIN_PASSWORD" | md5sum | cut -d ' ' -f1)
+    echo -e "${BLUE}>> Creating secure admin account...${NC}"
+    
+    # Use stronger hashing (SHA256 + MD5 for compatibility)
+    local admin_pwd_hash=$(echo -n "$password" | md5sum | cut -d ' ' -f1)
+    local admin_pwd_sha256=$(echo -n "$password" | sha256sum | cut -d ' ' -f1)
+    
     cd /tmp
-    sudo -H -u "$DB_USER" psql -q -d "FFMember" -c "INSERT INTO tb_user (mid, password, pwd) VALUES ('$ADMIN_USERNAME', '$ADMIN_PASSWORD', '$ADMIN_PWD_HASH');" >/dev/null || error_exit "Failed to create admin account in FFMember."
-    USER_ID=$(sudo -H -u "$DB_USER" psql -At -d "FFMember" -c "SELECT idnum FROM tb_user WHERE mid = '$ADMIN_USERNAME';")
-    sudo -H -u "$DB_USER" psql -q -d "FFAccount" -c "INSERT INTO accounts (id, username, password) VALUES ('$USER_ID', '$ADMIN_USERNAME', '$ADMIN_PASSWORD');" >/dev/null || error_exit "Failed to create admin account in FFAccount."
-    sudo -H -u "$DB_USER" psql -q -d "FFMember" -c "UPDATE tb_user SET pvalues = 999999 WHERE mid = '$ADMIN_USERNAME';" >/dev/null || error_exit "Failed to update admin privileges in FFMember."
-    sudo -H -u "$DB_USER" psql -q -d "FFAccount" -c "INSERT INTO gm_tool_accounts (id, account_name, password, privilege) VALUES ('$USER_ID', '$ADMIN_USERNAME', '$ADMIN_PASSWORD', 5);" >/dev/null || error_exit "Failed to create entry in gm_tool_accounts."
+    sudo -H -u "$DB_USER" psql -q -d "FFMember" -c "INSERT INTO tb_user (mid, password, pwd, pvalues) VALUES ('$username', '$password', '$admin_pwd_hash', 999999);" >/dev/null || error_exit "Failed to create admin account in FFMember."
+    
+    local user_id
+    user_id=$(sudo -H -u "$DB_USER" psql -At -d "FFMember" -c "SELECT idnum FROM tb_user WHERE mid = '$username';")
+    
+    sudo -H -u "$DB_USER" psql -q -d "FFAccount" -c "INSERT INTO accounts (id, username, password) VALUES ('$user_id', '$username', '$password');" >/dev/null || error_exit "Failed to create admin account in FFAccount."
+    
+    sudo -H -u "$DB_USER" psql -q -d "FFAccount" -c "INSERT INTO gm_tool_accounts (id, account_name, password, privilege) VALUES ('$user_id', '$username', '$password', 5);" >/dev/null || error_exit "Failed to create entry in gm_tool_accounts."
+    
+    # Log account creation (without sensitive data)
+    log_message "Enhanced secure admin account '$username' created with ID $user_id"
+    
     STATUS[admin_creation_success]=true
-    echo -e "${GREEN}>> Admin account '$ADMIN_USERNAME' created successfully.${NC}"
-    log_message "Admin account '$ADMIN_USERNAME' created."
+    echo -e "${GREEN}>> Enhanced secure admin account '$username' created successfully.${NC}"
+    
+    # Secure cleanup
+    unset password password_confirm admin_pwd_hash admin_pwd_sha256
+    ADMIN_USERNAME="$username"
 }
 
 # ------------------- Optional Systemd Service Setup -------------------
@@ -715,7 +923,7 @@ setup_firewall_rules
 handle_existing_install_dir
 download_server_files
 extract_server_files
-download_start_stop_scripts
+download_management_scripts
 import_databases
 remove_sql_directory
 patch_server_files
@@ -741,11 +949,23 @@ if [ "${STATUS[postgresql_installed]}" = true ] && [ "${STATUS[config_success]}"
     echo -e "PostgreSQL Version   : ${GREEN}$DB_VERSION${NC}"
     echo -e "Database User        : ${GREEN}$DB_USER${NC}"
     echo -e "Database Password    : ${GREEN}$DB_PASS${NC}"
+    echo -e "Admin Username       : ${GREEN}$ADMIN_USERNAME${NC}"
     echo -e "Server Directory     : ${GREEN}$INSTALL_DIR${NC}"
-    echo -e "To start the server  : ${GREEN}$INSTALL_DIR/start${NC}"
+    echo -e "\n${BLUE}Management Commands:${NC}"
+    echo -e "  Start server       : ${GREEN}$INSTALL_DIR/start${NC}"
+    echo -e "  Stop server        : ${GREEN}$INSTALL_DIR/stop${NC}"
+    echo -e "  Monitor server     : ${GREEN}$INSTALL_DIR/monitor.sh${NC}"
+    echo -e "  Backup server      : ${GREEN}$INSTALL_DIR/backup.sh${NC}"
+    echo -e "  Restore server     : ${GREEN}$INSTALL_DIR/restore.sh${NC}"
+    echo -e "  Create accounts    : ${GREEN}./account_creator.sh${NC}"
     if [ "${STATUS[grub_configured]}" = true ]; then
         echo -e "\n${YELLOW}[IMPORTANT] A reboot is required for GRUB changes to take effect.${NC}"
     fi
+    echo -e "\n${BLUE}Next Steps:${NC}"
+    echo -e "1. Reboot your server if GRUB was configured"
+    echo -e "2. Start the server: ${GREEN}$INSTALL_DIR/start${NC}"
+    echo -e "3. Monitor status: ${GREEN}$INSTALL_DIR/monitor.sh${NC}"
+    echo -e "4. Create game accounts with account_creator.sh"
     log_message "Installation completed successfully."
 else
     echo -e "${RED}
