@@ -689,13 +689,74 @@ extract_server_files() {
 }
 
 download_management_scripts() {
-    echo -e "${BLUE}>> Downloading management scripts...${NC}"
-    cd "$INSTALL_DIR" || error_exit "Failed to change directory to $INSTALL_DIR."
+    echo -e "${BLUE}>> Setting up AKUTools management suite...${NC}"
     
-    local scripts=("start" "stop" "backup.sh" "restore.sh" "monitor.sh")
+    # Create AKUTools directory
+    local akutools_dir="/root/AKUTools"
+    if [ ! -d "$akutools_dir" ]; then
+        mkdir -p "$akutools_dir" || error_exit "Failed to create AKUTools directory."
+        echo -e "${GREEN}   - AKUTools directory created: $akutools_dir${NC}"
+    else
+        echo -e "${GREEN}   - AKUTools directory exists: $akutools_dir${NC}"
+    fi
+    
+    cd "$akutools_dir" || error_exit "Failed to change directory to $akutools_dir."
+    
+    # Define all management scripts
+    local scripts=(
+        "monitor.sh"
+        "backup.sh" 
+        "restore.sh"
+        "account_creator.sh"
+        "multi_server_manager.sh"
+        "multi_channel_manager.sh"
+    )
+    
     local base_url="https://raw.githubusercontent.com/MrDulgan/AKF/main"
     
+    echo -e "${BLUE}   - Checking and downloading AKUTools scripts...${NC}"
     for script in "${scripts[@]}"; do
+        local download_needed=true
+        
+        # Check if script exists and validate its content
+        if [ -f "$script" ]; then
+            local file_size=$(stat -f%z "$script" 2>/dev/null || stat -c%s "$script" 2>/dev/null || echo "0")
+            if [ "$file_size" -gt 100 ]; then
+                # File exists and has reasonable size, check if it's a valid script
+                if head -1 "$script" | grep -q "#!/bin/bash"; then
+                    echo -e "${GREEN}   - $script already exists and appears valid, skipping...${NC}"
+                    download_needed=false
+                else
+                    echo -e "${YELLOW}   - $script exists but appears corrupted, re-downloading...${NC}"
+                fi
+            else
+                echo -e "${YELLOW}   - $script exists but is too small, re-downloading...${NC}"
+            fi
+        fi
+        
+        if [ "$download_needed" = true ]; then
+            echo -e "${BLUE}   - Downloading $script...${NC}"
+            if retry_command wget -q -O "$script" "$base_url/$script"; then
+                chmod +x "$script" || error_exit "Failed to set execute permissions on $script."
+                echo -e "${GREEN}   - $script downloaded and configured.${NC}"
+            else
+                echo -e "${YELLOW}[WARNING] Failed to download $script, skipping...${NC}"
+                log_message "Warning: Failed to download $script"
+            fi
+        fi
+        
+        # Ensure script is executable
+        if [ -f "$script" ]; then
+            chmod +x "$script" 2>/dev/null || true
+        fi
+    done
+    
+    # Download start/stop scripts to server directory
+    cd "$INSTALL_DIR" || error_exit "Failed to change directory to $INSTALL_DIR."
+    local server_scripts=("start" "stop")
+    
+    echo -e "${BLUE}   - Downloading server control scripts...${NC}"
+    for script in "${server_scripts[@]}"; do
         echo -e "${BLUE}   - Downloading $script...${NC}"
         if retry_command wget -q -O "$script" "$base_url/$script"; then
             chmod +x "$script" || error_exit "Failed to set execute permissions on $script."
@@ -706,8 +767,64 @@ download_management_scripts() {
         fi
     done
     
-    echo -e "${GREEN}>> Management scripts download completed.${NC}"
-    log_message "Management scripts downloaded."
+    # Create convenience symlinks in server directory
+    echo -e "${BLUE}   - Creating convenience shortcuts...${NC}"
+    local symlink_scripts=("monitor.sh" "backup.sh" "restore.sh" "account_creator.sh")
+    for script in "${symlink_scripts[@]}"; do
+        if [ -f "$akutools_dir/$script" ]; then
+            ln -sf "$akutools_dir/$script" "$INSTALL_DIR/$script" 2>/dev/null || {
+                echo -e "${YELLOW}[WARNING] Could not create symlink for $script${NC}"
+            }
+        fi
+    done
+    
+    # Create AKUTools launcher script in server directory
+    cat > "$INSTALL_DIR/akutools" << 'EOF'
+#!/bin/bash
+# AKUTools Launcher Script
+
+AKUTOOLS_DIR="/root/AKUTools"
+GREEN='\e[1;32m'
+BLUE='\e[0;36m'
+YELLOW='\e[1;33m'
+NC='\e[0m'
+
+echo -e "${BLUE}
+==================================================
+                  AKUTools Suite
+==================================================${NC}"
+echo -e "${GREEN}Available Tools:${NC}"
+echo -e "  ${BLUE}1.${NC} Monitor Server     (monitor.sh)"
+echo -e "  ${BLUE}2.${NC} Backup Server      (backup.sh)"
+echo -e "  ${BLUE}3.${NC} Restore Server     (restore.sh)"
+echo -e "  ${BLUE}4.${NC} Account Creator    (account_creator.sh)"
+echo -e "  ${BLUE}5.${NC} Multi Server Mgr   (multi_server_manager.sh)"
+echo -e "  ${BLUE}6.${NC} Multi Channel Mgr  (multi_channel_manager.sh)"
+echo -e "  ${BLUE}7.${NC} Open AKUTools Dir"
+echo ""
+
+read -p "Select a tool (1-7) or press Enter to exit: " choice
+
+case $choice in
+    1) cd "$AKUTOOLS_DIR" && ./monitor.sh ;;
+    2) cd "$AKUTOOLS_DIR" && ./backup.sh ;;
+    3) cd "$AKUTOOLS_DIR" && ./restore.sh ;;
+    4) cd "$AKUTOOLS_DIR" && ./account_creator.sh ;;
+    5) cd "$AKUTOOLS_DIR" && ./multi_server_manager.sh ;;
+    6) cd "$AKUTOOLS_DIR" && ./multi_channel_manager.sh ;;
+    7) cd "$AKUTOOLS_DIR" && echo -e "${GREEN}You are now in AKUTools directory: $AKUTOOLS_DIR${NC}" && exec bash ;;
+    "") echo -e "${YELLOW}Exiting AKUTools...${NC}" ;;
+    *) echo -e "${YELLOW}Invalid choice. Exiting...${NC}" ;;
+esac
+EOF
+    
+    chmod +x "$INSTALL_DIR/akutools" || error_exit "Failed to set execute permissions on akutools launcher."
+    
+    echo -e "${GREEN}>> AKUTools suite setup completed.${NC}"
+    echo -e "${GREEN}   - Tools installed in: $akutools_dir${NC}"
+    echo -e "${GREEN}   - Launcher available: $INSTALL_DIR/akutools${NC}"
+    echo -e "${GREEN}   - Direct shortcuts available in server directory${NC}"
+    log_message "AKUTools management suite installed."
 }
 
 import_databases() {
@@ -1513,33 +1630,48 @@ if [ "${STATUS[postgresql_installed]}" = true ] && [ "${STATUS[config_success]}"
     echo -e "\n${BLUE}Management Commands:${NC}"
     echo -e "  Start server       : ${GREEN}$INSTALL_DIR/start${NC}"
     echo -e "  Stop server        : ${GREEN}$INSTALL_DIR/stop${NC}"
-    echo -e "  Monitor server     : ${GREEN}$INSTALL_DIR/monitor.sh${NC}"
-    echo -e "  Backup server      : ${GREEN}$INSTALL_DIR/backup.sh${NC}"
-    echo -e "  Restore server     : ${GREEN}$INSTALL_DIR/restore.sh${NC}"
-    echo -e "  Create accounts    : ${GREEN}./account_creator.sh${NC}"
+    echo -e "  Enhanced monitor   : ${GREEN}$INSTALL_DIR/monitor.sh${NC} ${CYAN}(with multi-server support)${NC}"
+    echo -e "  AKUTools launcher  : ${GREEN}$INSTALL_DIR/akutools${NC}"
+    
+    echo -e "\n${CYAN}AKUTools Suite (/root/AKUTools):${NC}"
+    echo -e "  Server backup      : ${GREEN}/root/AKUTools/backup.sh${NC}"
+    echo -e "  Server restore     : ${GREEN}/root/AKUTools/restore.sh${NC}"
+    echo -e "  Account creator    : ${GREEN}/root/AKUTools/account_creator.sh${NC}"
+    echo -e "  Multi-server mgr   : ${GREEN}/root/AKUTools/multi_server_manager.sh${NC}"
+    echo -e "  Multi-channel mgr  : ${GREEN}/root/AKUTools/multi_channel_manager.sh${NC}"
     if [ "${STATUS[grub_configured]}" = true ]; then
         echo -e "\n${YELLOW}[IMPORTANT] A reboot is required for GRUB changes to take effect.${NC}"
     fi
     echo -e "\n${BLUE}Next Steps:${NC}"
     if [ "${STATUS[grub_configured]}" = true ]; then
         echo -e "1. ${YELLOW}REBOOT YOUR SERVER${NC} (required for vsyscall=emulate to take effect)"
-        echo -e "2. Start the server: ${GREEN}$INSTALL_DIR/start${NC}"
-        echo -e "3. Monitor status: ${GREEN}$INSTALL_DIR/monitor.sh${NC}"
-        echo -e "4. Create game accounts with account_creator.sh"
+        echo -e "2. Start the server: ${GREEN}$INSTALL_DIR/start${NC} ${CYAN}(optimized - no blocking)${NC}"
+        echo -e "3. Monitor with enhanced tools: ${GREEN}$INSTALL_DIR/monitor.sh${NC}"
+        echo -e "4. Access AKUTools: ${GREEN}$INSTALL_DIR/akutools${NC}"
+        echo -e "5. Create game accounts: ${GREEN}/root/AKUTools/account_creator.sh${NC}"
     elif [ "${STATUS[grub_configured]}" = false ]; then
         echo -e "1. ${YELLOW}MANUALLY CONFIGURE GRUB:${NC}"
         echo -e "   - Run: ${GREEN}sudo update-grub${NC} or ${GREEN}sudo grub2-mkconfig -o /boot/grub2/grub.cfg${NC}"
         echo -e "   - Then: ${YELLOW}REBOOT YOUR SERVER${NC}"
-        echo -e "2. Start the server: ${GREEN}$INSTALL_DIR/start${NC}"
-        echo -e "3. Monitor status: ${GREEN}$INSTALL_DIR/monitor.sh${NC}"
-        echo -e "4. Create game accounts with account_creator.sh"
+        echo -e "2. Start the server: ${GREEN}$INSTALL_DIR/start${NC} ${CYAN}(optimized - no blocking)${NC}"
+        echo -e "3. Monitor with enhanced tools: ${GREEN}$INSTALL_DIR/monitor.sh${NC}"
+        echo -e "4. Access AKUTools: ${GREEN}$INSTALL_DIR/akutools${NC}"
+        echo -e "5. Create game accounts: ${GREEN}/root/AKUTools/account_creator.sh${NC}"
     else
-        echo -e "1. Start the server: ${GREEN}$INSTALL_DIR/start${NC}"
-        echo -e "2. Monitor status: ${GREEN}$INSTALL_DIR/monitor.sh${NC}"
-        echo -e "3. Create game accounts with account_creator.sh"
+        echo -e "1. Start the server: ${GREEN}$INSTALL_DIR/start${NC} ${CYAN}(optimized - no blocking)${NC}"
+        echo -e "2. Monitor with enhanced tools: ${GREEN}$INSTALL_DIR/monitor.sh${NC}"
+        echo -e "3. Access AKUTools: ${GREEN}$INSTALL_DIR/akutools${NC}"
+        echo -e "4. Create game accounts: ${GREEN}/root/AKUTools/account_creator.sh${NC}"
     fi
+    
+    echo -e "\n${CYAN}💡 Pro Tips:${NC}"
+    echo -e "   • Start script now runs in background - terminal stays free"
+    echo -e "   • Use enhanced monitor for multi-server/channel management"
+    echo -e "   • AKUTools provides centralized management interface"
+    echo -e "   • All tools support multi-instance configurations"
+    
     if [ "${STATUS[ssh_configured]}" = true ]; then
-        echo -e "5. You can now connect remotely via SSH/PuTTY using IP: ${GREEN}$IP${NC}"
+        echo -e "\n${GREEN}🌐 Remote Access:${NC} SSH/PuTTY ready on IP: ${GREEN}$IP${NC}"
     fi
     log_message "Installation completed successfully."
 else

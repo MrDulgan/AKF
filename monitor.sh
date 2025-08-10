@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# AK Server Monitoring Script
+# Enhanced AK Server Monitoring Script with Multi-Server Support
 # Developer: Dulgan
 
 RED='\e[0;31m'
@@ -8,11 +8,72 @@ GREEN='\e[1;32m'
 BLUE='\e[0;36m'
 YELLOW='\e[1;33m'
 PURPLE='\e[0;35m'
+CYAN='\e[0;96m'
 NC='\e[0m'
 
-INSTALL_DIR="/root/hxsy"
+# Multi-server configuration
+declare -A SERVER_INSTANCES
+CURRENT_INSTANCE="default"
+DEFAULT_INSTALL_DIR="/root/hxsy"
+AKUTOOLS_DIR="/root/AKUTools"
+
+# Default server configuration
+INSTALL_DIR="$DEFAULT_INSTALL_DIR"
 SERVERS=("TicketServer" "GatewayServer" "LoginServer" "MissionServer" "WorldServer" "ZoneServer")
 REFRESH_INTERVAL=5
+
+# Detect available server instances
+detect_server_instances() {
+    SERVER_INSTANCES["default"]="$DEFAULT_INSTALL_DIR"
+    
+    # Check for additional server instances
+    for dir in /root/hxsy*; do
+        if [[ -d "$dir" && "$dir" != "$DEFAULT_INSTALL_DIR" ]]; then
+            local instance_name=$(basename "$dir")
+            SERVER_INSTANCES["$instance_name"]="$dir"
+        fi
+    done
+    
+    # Check AKUTools directory for server configurations
+    if [[ -d "$AKUTOOLS_DIR" ]]; then
+        for config in "$AKUTOOLS_DIR"/server_*.conf; do
+            if [[ -f "$config" ]]; then
+                local instance_name=$(basename "$config" .conf | sed 's/server_//')
+                local server_path=$(grep "INSTALL_DIR=" "$config" 2>/dev/null | cut -d'=' -f2)
+                if [[ -n "$server_path" && -d "$server_path" ]]; then
+                    SERVER_INSTANCES["$instance_name"]="$server_path"
+                fi
+            fi
+        done
+    fi
+}
+
+# Switch server instance
+switch_instance() {
+    local instance="$1"
+    if [[ -n "${SERVER_INSTANCES[$instance]}" ]]; then
+        CURRENT_INSTANCE="$instance"
+        INSTALL_DIR="${SERVER_INSTANCES[$instance]}"
+        echo -e "${GREEN}Switched to instance: $instance ($INSTALL_DIR)${NC}"
+    else
+        echo -e "${RED}Instance '$instance' not found${NC}"
+    fi
+}
+
+# Enhanced server detection with multi-channel support
+detect_servers() {
+    SERVERS=("TicketServer" "GatewayServer" "LoginServer" "MissionServer" "WorldServer" "ZoneServer")
+    
+    # Check for additional channel servers
+    if [[ -d "$INSTALL_DIR" ]]; then
+        for dir in "$INSTALL_DIR"/Channel_*; do
+            if [[ -d "$dir" ]]; then
+                local channel_name=$(basename "$dir")
+                SERVERS+=("$channel_name")
+            fi
+        done
+    fi
+}
 
 get_server_status() {
     local server="$1"
@@ -133,10 +194,20 @@ display_header() {
     clear
     echo -e "${BLUE}
 ==================================================
-           AK Server Monitor
+           AK Server Monitor (Enhanced)
            Developer: Dulgan
            $(date '+%Y-%m-%d %H:%M:%S')
 ==================================================${NC}"
+    
+    # Display current instance information
+    echo -e "${CYAN}Current Instance: ${GREEN}$CURRENT_INSTANCE${NC} ${CYAN}(${INSTALL_DIR})${NC}"
+    
+    # Display available instances if more than one
+    if [[ ${#SERVER_INSTANCES[@]} -gt 1 ]]; then
+        echo -e "${CYAN}Available Instances: ${GREEN}$(printf "%s " "${!SERVER_INSTANCES[@]}")${NC}"
+    fi
+    
+    echo -e "${CYAN}Detected Servers: ${GREEN}${#SERVERS[@]}${NC} ${CYAN}| Refresh: ${GREEN}${REFRESH_INTERVAL}s${NC}"
 }
 
 display_server_status() {
@@ -198,7 +269,37 @@ display_log_info() {
 
 display_controls() {
     echo -e "\n${PURPLE}🎛️  Controls:${NC}"
-    echo -e "  [q] Quit    [r] Restart Servers    [s] Stop Servers    [b] Backup    [l] View Logs"
+    echo -e "  [q] Quit    [r] Restart    [s] Stop    [b] Backup    [l] Logs    [i] Switch Instance"
+    if [[ ${#SERVER_INSTANCES[@]} -gt 1 ]]; then
+        echo -e "  [1-9] Quick switch to instance    [a] AKUTools    [m] Multi-Manager"
+    fi
+}
+
+show_instance_menu() {
+    echo -e "\n${CYAN}Available Server Instances:${NC}"
+    local counter=1
+    for instance in "${!SERVER_INSTANCES[@]}"; do
+        local status_indicator=""
+        if [[ "$instance" == "$CURRENT_INSTANCE" ]]; then
+            status_indicator="${GREEN}(current)${NC}"
+        fi
+        echo -e "  [$counter] $instance - ${SERVER_INSTANCES[$instance]} $status_indicator"
+        ((counter++))
+    done
+    echo -e "\n${YELLOW}Enter instance number or name: ${NC}"
+    read -t 10 selection
+    
+    if [[ "$selection" =~ ^[0-9]+$ ]]; then
+        local instance_array=("${!SERVER_INSTANCES[@]}")
+        local selected_instance="${instance_array[$((selection-1))]}"
+        if [[ -n "$selected_instance" ]]; then
+            switch_instance "$selected_instance"
+            detect_servers
+        fi
+    elif [[ -n "${SERVER_INSTANCES[$selection]}" ]]; then
+        switch_instance "$selection"
+        detect_servers
+    fi
 }
 
 handle_input() {
@@ -207,6 +308,60 @@ handle_input() {
         q|Q)
             echo -e "\n${GREEN}Monitoring stopped.${NC}"
             exit 0
+            ;;
+        r|R)
+            echo -e "\n${BLUE}Restarting servers on instance '$CURRENT_INSTANCE'...${NC}"
+            "$INSTALL_DIR/stop" && sleep 3 && "$INSTALL_DIR/start" &
+            ;;
+        s|S)
+            echo -e "\n${BLUE}Stopping servers on instance '$CURRENT_INSTANCE'...${NC}"
+            "$INSTALL_DIR/stop" &
+            ;;
+        b|B)
+            echo -e "\n${BLUE}Creating backup for instance '$CURRENT_INSTANCE'...${NC}"
+            if [[ -f "$AKUTOOLS_DIR/backup.sh" ]]; then
+                cd "$AKUTOOLS_DIR" && ./backup.sh "$INSTALL_DIR" &
+            elif [[ -f "$INSTALL_DIR/backup.sh" ]]; then
+                "$INSTALL_DIR/backup.sh" &
+            else
+                echo -e "${RED}Backup script not found${NC}"
+            fi
+            ;;
+        l|L)
+            echo -e "\n${BLUE}Opening log viewer for instance '$CURRENT_INSTANCE'...${NC}"
+            if [[ -d "$INSTALL_DIR/Logs" ]]; then
+                find "$INSTALL_DIR/Logs" -name "*.log*" -type f | head -5 | xargs tail -f &
+            fi
+            ;;
+        i|I)
+            show_instance_menu
+            ;;
+        a|A)
+            echo -e "\n${BLUE}Opening AKUTools...${NC}"
+            if [[ -f "$AKUTOOLS_DIR/akutools" ]]; then
+                cd "$AKUTOOLS_DIR" && ./akutools &
+            else
+                echo -e "${RED}AKUTools not found${NC}"
+            fi
+            ;;
+        m|M)
+            echo -e "\n${BLUE}Opening Multi-Server Manager...${NC}"
+            if [[ -f "$AKUTOOLS_DIR/multi_server_manager.sh" ]]; then
+                cd "$AKUTOOLS_DIR" && ./multi_server_manager.sh &
+            else
+                echo -e "${RED}Multi-Server Manager not found${NC}"
+            fi
+            ;;
+        [1-9])
+            local instance_array=("${!SERVER_INSTANCES[@]}")
+            local selected_instance="${instance_array[$((key-1))]}"
+            if [[ -n "$selected_instance" ]]; then
+                switch_instance "$selected_instance"
+                detect_servers
+            fi
+            ;;
+    esac
+}
             ;;
         r|R)
             echo -e "\n${BLUE}Restarting servers...${NC}"
@@ -233,11 +388,25 @@ handle_input() {
     esac
 }
 
-# Main monitoring loop
-echo -e "${GREEN}Starting AK Server Monitor...${NC}"
-echo -e "${BLUE}Press 'q' to quit, 'r' to restart servers, 's' to stop servers${NC}"
-sleep 2
+# Initialize multi-server monitoring
+echo -e "${GREEN}Initializing Enhanced AK Server Monitor...${NC}"
+detect_server_instances
+detect_servers
 
+# Display initialization info
+if [[ ${#SERVER_INSTANCES[@]} -gt 1 ]]; then
+    echo -e "${CYAN}Detected ${#SERVER_INSTANCES[@]} server instances:${NC}"
+    for instance in "${!SERVER_INSTANCES[@]}"; do
+        echo -e "  - $instance: ${SERVER_INSTANCES[$instance]}"
+    done
+fi
+
+echo -e "${GREEN}Monitoring instance: $CURRENT_INSTANCE${NC}"
+echo -e "${BLUE}Detected servers: ${#SERVERS[@]}${NC}"
+echo -e "${BLUE}Use 'i' to switch instances, 'q' to quit${NC}"
+sleep 3
+
+# Main monitoring loop
 while true; do
     display_header
     display_server_status

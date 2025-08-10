@@ -262,29 +262,59 @@ start_server "$INSTALL_DIR/ZoneServer/" "ZoneServer"
 echo -e "${GREEN}>> All servers started successfully!${NC}" | tee -a "$LOGFILE"
 echo -e "${BLUE}>> Server startup completed in $(($(date +%s) - START_TIME)) seconds.${NC}" | tee -a "$LOGFILE"
 
-# Function to display uptime and resource usage
-show_running_time() {
-    while true; do
-        CURRENT_TIME=$(date +%s)
-        ELAPSED_TIME=$(( CURRENT_TIME - START_TIME ))
-        DAYS=$(( ELAPSED_TIME / 86400 ))
-        HOURS=$(( (ELAPSED_TIME % 86400) / 3600 ))
-        MINUTES=$(( (ELAPSED_TIME % 3600) / 60 ))
-        SECONDS=$(( ELAPSED_TIME % 60 ))
-        CPU_USAGE=$(top -b -n1 | grep "Cpu(s)" | awk '{usage=$2+$4; printf "%.2f", usage}')
-        MEM_USAGE=$(free | grep Mem | awk '{usage=($3/$2)*100; printf "%.2f", usage}')
-        echo -ne "${BLUE}>> Uptime: ${DAYS}d ${HOURS}h ${MINUTES}m ${SECONDS}s | CPU: ${CPU_USAGE}% | RAM: ${MEM_USAGE}% | Press CTRL+C to stop \r${NC}"
-        
-        for server in "${!SERVER_PIDS[@]}"; do
-            pid=${SERVER_PIDS[$server]}
-            if ! ps -p $pid > /dev/null; then
-                echo -e "\n${RED}>> $server has crashed. Check the log file for details.${NC}" | tee -a "$LOGFILE"
-                unset SERVER_PIDS["$server"]
-            fi
-        done
-        sleep 1
-    done
-}
+# Final status and management information
+echo -e "${PURPLE}
+==================================================
+            Server Startup Complete!
+==================================================${NC}"
+echo -e "${GREEN}>> All AK server components are now running.${NC}"
+echo -e "${BLUE}>> Server logs are being written to: $INSTALL_DIR/Logs/${NC}"
+echo -e "${BLUE}>> Startup log saved to: $LOGFILE${NC}"
 
-# Display uptime and resource usage
-show_running_time
+echo -e "${YELLOW}
+>> Management Tools Available:${NC}"
+echo -e "${GREEN}   • Monitor server status    : ./monitor.sh${NC}"
+echo -e "${GREEN}   • Backup server data       : ./backup.sh${NC}"
+echo -e "${GREEN}   • Restore server data      : ./restore.sh${NC}"
+echo -e "${GREEN}   • Create game accounts     : ./account_creator.sh${NC}"
+echo -e "${GREEN}   • AKUTools suite          : ./akutools${NC}"
+echo -e "${GREEN}   • Stop server              : ./stop${NC}"
+
+# Check if AKUTools is available
+if [ -f "./akutools" ]; then
+    echo -e "${BLUE}
+>> Advanced Management (AKUTools):${NC}"
+    echo -e "${GREEN}   • Multi-server management  : /root/AKUTools/multi_server_manager.sh${NC}"
+    echo -e "${GREEN}   • Multi-channel management : /root/AKUTools/multi_channel_manager.sh${NC}"
+fi
+
+echo -e "${PURPLE}
+>> The server is now running in the background.
+>> You can safely close this terminal or use it for other tasks.
+>> Use './stop' to shutdown the server when needed.
+==================================================${NC}"
+
+# Quick server status check
+echo -e "${BLUE}>> Quick Status Check:${NC}"
+local active_servers=0
+for server in "${!SERVER_PIDS[@]}"; do
+    pid=${SERVER_PIDS[$server]}
+    if ps -p $pid > /dev/null 2>&1; then
+        echo -e "${GREEN}   ✓ $server (PID: $pid)${NC}"
+        ((active_servers++))
+    else
+        echo -e "${RED}   ✗ $server (not running)${NC}"
+    fi
+done
+
+echo -e "${GREEN}>> $active_servers out of ${#SERVER_PIDS[@]} servers are running.${NC}"
+
+# Save PID information for management scripts
+cat > "$INSTALL_DIR/.server_pids" << EOF
+# Server PID information - $(date)
+# Format: SERVER_NAME=PID
+$(for server in "${!SERVER_PIDS[@]}"; do echo "$server=${SERVER_PIDS[$server]}"; done)
+EOF
+
+echo -e "${BLUE}>> Server PID information saved to $INSTALL_DIR/.server_pids${NC}"
+echo -e "${YELLOW}>> Happy gaming! The server is ready for connections.${NC}"
