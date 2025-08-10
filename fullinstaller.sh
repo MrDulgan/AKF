@@ -812,36 +812,121 @@ update_database_ips() {
 
 configure_grub() {
     echo -e "${BLUE}>> Configuring GRUB for vsyscall support...${NC}"
+    
+    # Check if GRUB configuration file exists
+    local grub_config=""
     if [ -f /etc/default/grub ]; then
-        if grep -q "vsyscall=emulate" /etc/default/grub; then
-            echo -e "${GREEN}>> GRUB already configured with vsyscall=emulate; skipping.${NC}"
-            STATUS[grub_configured]=false
-            log_message "GRUB already configured; no changes made."
-            return
+        grub_config="/etc/default/grub"
+    elif [ -f /etc/grub2.cfg ]; then
+        grub_config="/etc/grub2.cfg"
+    elif [ -f /boot/grub2/grub.cfg ]; then
+        grub_config="/boot/grub2/grub.cfg"
+    else
+        echo -e "${YELLOW}[NOTICE] No GRUB configuration file found; skipping GRUB configuration.${NC}"
+        echo -e "${YELLOW}[NOTICE] You may need to manually add 'vsyscall=emulate' to kernel parameters.${NC}"
+        log_message "GRUB configuration skipped - no config file found."
+        return
+    fi
+    
+    echo -e "${BLUE}   - Using GRUB config: $grub_config${NC}"
+    
+    # Check if vsyscall=emulate is already present
+    if grep -q "vsyscall=emulate" "$grub_config"; then
+        echo -e "${GREEN}>> GRUB already configured with vsyscall=emulate; skipping.${NC}"
+        STATUS[grub_configured]=false
+        log_message "GRUB already configured; no changes made."
+        return
+    fi
+    
+    # Backup the original GRUB configuration
+    sudo cp "$grub_config" "${grub_config}.bak" || {
+        echo -e "${YELLOW}[WARNING] Could not backup GRUB config, continuing anyway...${NC}"
+        log_message "Warning: GRUB config backup failed."
+    }
+    
+    # Add vsyscall=emulate to GRUB configuration
+    if [ "$grub_config" = "/etc/default/grub" ]; then
+        if grep -q "^GRUB_CMDLINE_LINUX_DEFAULT=" "$grub_config"; then
+            sudo sed -i 's/\(GRUB_CMDLINE_LINUX_DEFAULT="[^"]*\)"/\1 vsyscall=emulate"/' "$grub_config" || error_exit "Failed to update GRUB_CMDLINE_LINUX_DEFAULT."
+            echo -e "${GREEN}>> vsyscall=emulate added to GRUB_CMDLINE_LINUX_DEFAULT.${NC}"
+        elif grep -q "^GRUB_CMDLINE_LINUX=" "$grub_config"; then
+            sudo sed -i 's/\(GRUB_CMDLINE_LINUX="[^"]*\)"/\1 vsyscall=emulate"/' "$grub_config" || error_exit "Failed to update GRUB_CMDLINE_LINUX."
+            echo -e "${GREEN}>> vsyscall=emulate added to GRUB_CMDLINE_LINUX.${NC}"
         else
-            if grep -q "^GRUB_CMDLINE_LINUX_DEFAULT=" /etc/default/grub; then
-                sudo sed -i 's/\(GRUB_CMDLINE_LINUX_DEFAULT="[^"]*\)"/\1 vsyscall=emulate"/' /etc/default/grub || error_exit "Failed to update GRUB_CMDLINE_LINUX_DEFAULT."
-                echo -e "${GREEN}>> vsyscall=emulate added to GRUB_CMDLINE_LINUX_DEFAULT.${NC}"
-            elif grep -q "^GRUB_CMDLINE_LINUX=" /etc/default/grub; then
-                sudo sed -i 's/\(GRUB_CMDLINE_LINUX="[^"]*\)"/\1 vsyscall=emulate"/' /etc/default/grub || error_exit "Failed to update GRUB_CMDLINE_LINUX."
-                echo -e "${GREEN}>> vsyscall=emulate added to GRUB_CMDLINE_LINUX.${NC}"
-            else
-                echo 'GRUB_CMDLINE_LINUX="vsyscall=emulate"' | sudo tee -a /etc/default/grub || error_exit "Failed to add GRUB_CMDLINE_LINUX."
-                echo -e "${GREEN}>> GRUB_CMDLINE_LINUX created with vsyscall=emulate.${NC}"
-            fi
-            if command -v update-grub &> /dev/null; then
-                sudo update-grub > /dev/null 2>&1 || error_exit "Failed to update GRUB."
-            elif command -v grub2-mkconfig &> /dev/null; then
-                sudo grub2-mkconfig -o /boot/grub2/grub.cfg > /dev/null 2>&1 || error_exit "Failed to update GRUB."
-            else
-                error_exit "No GRUB update command found."
-            fi
-            STATUS[grub_configured]=true
-            echo -e "${GREEN}>> GRUB configured successfully. A reboot is required for changes to take effect.${NC}"
-            log_message "GRUB configured for vsyscall support."
+            echo 'GRUB_CMDLINE_LINUX="vsyscall=emulate"' | sudo tee -a "$grub_config" || error_exit "Failed to add GRUB_CMDLINE_LINUX."
+            echo -e "${GREEN}>> GRUB_CMDLINE_LINUX created with vsyscall=emulate.${NC}"
         fi
     else
-        echo -e "${YELLOW}[NOTICE] /etc/default/grub not found; skipping GRUB configuration.${NC}"
+        echo -e "${YELLOW}[WARNING] Direct GRUB config file detected. Manual configuration may be required.${NC}"
+        log_message "Warning: Direct GRUB config modification attempted."
+    fi
+    
+    # Try to update GRUB with multiple possible commands
+    echo -e "${BLUE}>> Updating GRUB configuration...${NC}"
+    local grub_updated=false
+    
+    # Try different GRUB update commands in order of preference
+    if command -v update-grub &> /dev/null; then
+        echo -e "${BLUE}   - Using update-grub...${NC}"
+        if sudo update-grub > /dev/null 2>&1; then
+            grub_updated=true
+            echo -e "${GREEN}   - GRUB updated with update-grub.${NC}"
+        else
+            echo -e "${YELLOW}   - update-grub failed, trying alternative...${NC}"
+        fi
+    fi
+    
+    if [ "$grub_updated" = false ] && command -v grub2-mkconfig &> /dev/null; then
+        echo -e "${BLUE}   - Using grub2-mkconfig...${NC}"
+        if sudo grub2-mkconfig -o /boot/grub2/grub.cfg > /dev/null 2>&1; then
+            grub_updated=true
+            echo -e "${GREEN}   - GRUB updated with grub2-mkconfig.${NC}"
+        elif sudo grub2-mkconfig -o /boot/grub/grub.cfg > /dev/null 2>&1; then
+            grub_updated=true
+            echo -e "${GREEN}   - GRUB updated with grub2-mkconfig (alternative path).${NC}"
+        else
+            echo -e "${YELLOW}   - grub2-mkconfig failed, trying alternative...${NC}"
+        fi
+    fi
+    
+    if [ "$grub_updated" = false ] && command -v grub-mkconfig &> /dev/null; then
+        echo -e "${BLUE}   - Using grub-mkconfig...${NC}"
+        if sudo grub-mkconfig -o /boot/grub/grub.cfg > /dev/null 2>&1; then
+            grub_updated=true
+            echo -e "${GREEN}   - GRUB updated with grub-mkconfig.${NC}"
+        else
+            echo -e "${YELLOW}   - grub-mkconfig failed, trying alternative...${NC}"
+        fi
+    fi
+    
+    if [ "$grub_updated" = false ] && command -v grub-install &> /dev/null; then
+        echo -e "${BLUE}   - Attempting grub-install...${NC}"
+        local boot_device=$(df /boot | tail -1 | awk '{print $1}' | sed 's/[0-9]*$//')
+        if [ -n "$boot_device" ]; then
+            if sudo grub-install "$boot_device" > /dev/null 2>&1; then
+                grub_updated=true
+                echo -e "${GREEN}   - GRUB updated with grub-install.${NC}"
+            else
+                echo -e "${YELLOW}   - grub-install failed.${NC}"
+            fi
+        fi
+    fi
+    
+    # Final status check
+    if [ "$grub_updated" = true ]; then
+        STATUS[grub_configured]=true
+        echo -e "${GREEN}>> GRUB configured successfully. A reboot is required for changes to take effect.${NC}"
+        log_message "GRUB configured for vsyscall support."
+    else
+        echo -e "${YELLOW}[WARNING] Could not automatically update GRUB configuration.${NC}"
+        echo -e "${YELLOW}[NOTICE] GRUB configuration file has been modified, but update failed.${NC}"
+        echo -e "${YELLOW}[NOTICE] Please manually run one of these commands after installation:${NC}"
+        echo -e "${YELLOW}   - sudo update-grub${NC}"
+        echo -e "${YELLOW}   - sudo grub2-mkconfig -o /boot/grub2/grub.cfg${NC}"
+        echo -e "${YELLOW}   - sudo grub-mkconfig -o /boot/grub/grub.cfg${NC}"
+        echo -e "${YELLOW}[NOTICE] Then reboot the system for vsyscall=emulate to take effect.${NC}"
+        STATUS[grub_configured]=false
+        log_message "GRUB configuration modified but update failed - manual intervention required."
     fi
 }
 
@@ -1358,7 +1443,23 @@ import_databases
 remove_sql_directory
 patch_server_files
 update_database_ips
-configure_grub
+
+# Optional GRUB configuration
+echo -e "${BLUE}
+==================================================
+           GRUB Configuration (Optional)
+==================================================${NC}"
+echo -e "${YELLOW}[NOTICE] The game server requires 'vsyscall=emulate' kernel parameter for optimal compatibility.${NC}"
+echo -e "${YELLOW}[NOTICE] This is especially important for older binary files.${NC}"
+read -p "Do you want to configure GRUB automatically? [Y/n]: " configure_grub_choice
+if [[ ! "$configure_grub_choice" =~ ^[Nn]$ ]]; then
+    configure_grub
+else
+    echo -e "${YELLOW}[NOTICE] GRUB configuration skipped.${NC}"
+    echo -e "${YELLOW}[NOTICE] You may need to manually add 'vsyscall=emulate' to your kernel parameters.${NC}"
+    log_message "GRUB configuration skipped by user choice."
+fi
+
 create_admin_account
 admin_info_message
 
@@ -1400,6 +1501,15 @@ if [ "${STATUS[postgresql_installed]}" = true ] && [ "${STATUS[config_success]}"
         echo -e "Compatibility        : ${YELLOW}Basic Configuration${NC}"
     fi
     
+    # GRUB Status Display
+    if [ "${STATUS[grub_configured]}" = true ]; then
+        echo -e "GRUB Configuration   : ${GREEN}Updated (vsyscall=emulate)${NC}"
+        echo -e "Reboot Required      : ${YELLOW}Yes${NC}"
+    else
+        echo -e "GRUB Configuration   : ${YELLOW}Manual Configuration Required${NC}"
+        echo -e "Required Parameter   : ${YELLOW}vsyscall=emulate${NC}"
+    fi
+    
     echo -e "\n${BLUE}Management Commands:${NC}"
     echo -e "  Start server       : ${GREEN}$INSTALL_DIR/start${NC}"
     echo -e "  Stop server        : ${GREEN}$INSTALL_DIR/stop${NC}"
@@ -1411,10 +1521,23 @@ if [ "${STATUS[postgresql_installed]}" = true ] && [ "${STATUS[config_success]}"
         echo -e "\n${YELLOW}[IMPORTANT] A reboot is required for GRUB changes to take effect.${NC}"
     fi
     echo -e "\n${BLUE}Next Steps:${NC}"
-    echo -e "1. Reboot your server if GRUB was configured"
-    echo -e "2. Start the server: ${GREEN}$INSTALL_DIR/start${NC}"
-    echo -e "3. Monitor status: ${GREEN}$INSTALL_DIR/monitor.sh${NC}"
-    echo -e "4. Create game accounts with account_creator.sh"
+    if [ "${STATUS[grub_configured]}" = true ]; then
+        echo -e "1. ${YELLOW}REBOOT YOUR SERVER${NC} (required for vsyscall=emulate to take effect)"
+        echo -e "2. Start the server: ${GREEN}$INSTALL_DIR/start${NC}"
+        echo -e "3. Monitor status: ${GREEN}$INSTALL_DIR/monitor.sh${NC}"
+        echo -e "4. Create game accounts with account_creator.sh"
+    elif [ "${STATUS[grub_configured]}" = false ]; then
+        echo -e "1. ${YELLOW}MANUALLY CONFIGURE GRUB:${NC}"
+        echo -e "   - Run: ${GREEN}sudo update-grub${NC} or ${GREEN}sudo grub2-mkconfig -o /boot/grub2/grub.cfg${NC}"
+        echo -e "   - Then: ${YELLOW}REBOOT YOUR SERVER${NC}"
+        echo -e "2. Start the server: ${GREEN}$INSTALL_DIR/start${NC}"
+        echo -e "3. Monitor status: ${GREEN}$INSTALL_DIR/monitor.sh${NC}"
+        echo -e "4. Create game accounts with account_creator.sh"
+    else
+        echo -e "1. Start the server: ${GREEN}$INSTALL_DIR/start${NC}"
+        echo -e "2. Monitor status: ${GREEN}$INSTALL_DIR/monitor.sh${NC}"
+        echo -e "3. Create game accounts with account_creator.sh"
+    fi
     if [ "${STATUS[ssh_configured]}" = true ]; then
         echo -e "5. You can now connect remotely via SSH/PuTTY using IP: ${GREEN}$IP${NC}"
     fi
