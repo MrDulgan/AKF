@@ -1405,6 +1405,7 @@ create_channels_batch() {
                 ((success_count++))
             else
                 echo -e "${YELLOW}   ⚠ Channel $channel_num created but database update failed${NC}"
+                failed_channels+=("$channel_num")
             fi
             
             # Add to configuration arrays even if DB failed
@@ -1412,10 +1413,6 @@ create_channels_batch() {
             CHANNEL_IDS+=("$world_id")
             CHANNEL_PORTS+=("$port")
             CHANNEL_ZONE_IDS+=("$zone_id")
-                
-                failed_channels+=("$channel_num")
-                ((success_count++))
-            fi
         else
             echo -e "${RED}   ✗ Failed to copy essential files for Channel $channel_num${NC}"
             if [[ "$world_server_copied" == "false" ]]; then

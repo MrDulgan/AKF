@@ -1,0 +1,54 @@
+# Logs
+*.log
+*.log.*
+Logs/
+logs/
+
+# Server specific files
+*.pid
+.server_pids
+server_*.conf
+
+# Database dumps
+*.sql
+*.dump
+
+# Backup files
+Backup/
+backup/
+*.backup
+*.bak
+
+# Temporary files
+*.tmp
+*.temp
+.tmp/
+
+# System files
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+*~
+
+# IDE files
+.vscode/
+.idea/
+*.sublime-*
+
+# Runtime files
+nohup.out
+core.*
+
+# Installation artifacts
+hxsy/
+server_files/
+*.tar.gz
+*.zip
+
+# Security sensitive
+*.key
+*.pem
+*.crt
+config.ini
+database.conf
