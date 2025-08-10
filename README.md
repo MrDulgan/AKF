@@ -42,16 +42,18 @@ cd /root && curl -o fullinstaller.sh https://raw.githubusercontent.com/MrDulgan/
 - Admin account creation with full privileges
 - Database management and IP updates
 - Binary patching for optimal performance
-- Multi-server architecture support
+- **Multi-server architecture support with shared database**
+- **Real multi-server instances (same PostgreSQL, different ports)**
+- **Multi-channel support (multiple channels per server)**
 
 ## 🎮 Server Management
 
 ### Essential Commands
 ```bash
-# Start server
+# Start base server
 /root/hxsy/start
 
-# Stop server  
+# Stop base server  
 /root/hxsy/stop
 
 # Monitor server (real-time dashboard)
@@ -65,6 +67,21 @@ cd /root && curl -o fullinstaller.sh https://raw.githubusercontent.com/MrDulgan/
 
 # Create game accounts
 ./account_creator.sh
+
+# Multi-server management
+./multi_server_manager.sh create pvp_server    # Create PVP server
+./multi_server_manager.sh create pve_server    # Create PVE server  
+./multi_server_manager.sh list                 # List all servers
+./multi_server_manager.sh start pvp_server     # Start specific server
+./multi_server_manager.sh stop pve_server      # Stop specific server
+./multi_server_manager.sh monitor              # Monitor all servers
+
+# Multi-channel management (same server, multiple channels)
+./multi_channel_manager.sh create 1            # Create Ch02 (channel 2)
+./multi_channel_manager.sh create 2            # Create Ch03 (channel 3)
+./multi_channel_manager.sh list                # List all channels
+./multi_channel_manager.sh remove Ch02         # Remove channel 2
+./multi_channel_manager.sh info                # Show database info
 ```
 
 ### Systemd Commands (if installed)
@@ -76,27 +93,44 @@ systemctl status aurakingdom
 ## 📁 Directory Structure
 
 ```
-/root/hxsy/
-├── start              # Server startup script
-├── stop               # Server shutdown script  
-├── monitor.sh         # Real-time monitoring dashboard
-├── backup.sh          # Automated backup tool
-├── restore.sh         # Restore from backup tool
-├── setup.ini          # Database configuration
-├── Logs/              # Log files and backups
-├── TicketServer/      # Game server components
-├── GatewayServer/     
-├── LoginServer/       
-├── MissionServer/     
-├── WorldServer/       
-└── ZoneServer/        
+/root/hxsy/                    # Base server instance
+├── start                      # Server startup script
+├── stop                       # Server shutdown script  
+├── monitor.sh                 # Real-time monitoring dashboard
+├── backup.sh                  # Automated backup tool
+├── restore.sh                 # Restore from backup tool
+├── setup.ini                  # Database configuration
+├── config.ini                 # Game features configuration
+├── config00.ini - config09.ini  # Additional configurations
+├── Logs/                      # Log files and backups
+├── TicketServer/              # Game server components
+├── GatewayServer/             
+├── LoginServer/               
+├── MissionServer/             
+├── WorldServer/               
+└── ZoneServer/                
+
+/root/hxsy-pvp/                # Additional PVP server instance
+├── [same structure as base]   # Same files with different ports
+├── Different ports:           # LoginServer: 6643, TicketServer: 7877
+└── Same database access       # Uses same PostgreSQL instance
+
+/root/hxsy-pve/                # Additional PVE server instance  
+├── [same structure as base]   # Same files with different ports
+├── Different ports:           # LoginServer: 6743, TicketServer: 7977
+└── Same database access       # Uses same PostgreSQL instance
 ```
 
 ## ⚙️ Configuration
 
 - **Database**: PostgreSQL 13 with auto-generated secure passwords
-- **Ports**: 5567, 5568, 6543, 7654, 7777, 7878, 10021, 10022
-- **Default Install Path**: `/root/hxsy`
+- **Base Server Ports**: LoginServer:6543, TicketServer:7777, GatewayServer:7878
+- **Multi-Server Ports**: Each additional server uses +100 port offset
+- **Multi-Channel Ports**: Each channel uses +1 port offset (5567, 5568, 5569...)
+- **Default Install Path**: `/root/hxsy` (base), `/root/hxsy-{name}` (additional)
+- **Shared Database**: All servers use same PostgreSQL instance (FFAccount, FFDB1, FFMember)
+- **World IDs**: Each server gets unique WorldServerID and ZoneServerID
+- **Channel System**: Base=Aurora-Ch01, Additional=Aurora-Ch02, Aurora-Ch03...
 
 ## 🔨 Development
 

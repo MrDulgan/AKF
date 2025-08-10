@@ -1,9 +1,13 @@
 #!/bin/bash
 
+# Enhanced AK Account Creator
+# Developer: Dulgan
+
 RED='\e[0;31m'
 GREEN='\e[1;32m'
 BLUE='\e[0;36m'
 YELLOW='\e[1;33m'
+PURPLE='\e[0;35m'
 NC='\e[0m'
 
 DEFAULT_INSTALL_DIR='/root/hxsy'
@@ -17,6 +21,77 @@ DEFAULT_PVALUES=0
 error_exit() {
     echo -e "${RED}[ERROR] $1${NC}" >&2
     exit 1
+}
+
+# Enhanced validation functions
+validate_username() {
+    local username="$1"
+    
+    # Check length (3-16 characters)
+    if [[ ${#username} -lt 3 ]] || [[ ${#username} -gt 16 ]]; then
+        echo "Username must be 3-16 characters long"
+        return 1
+    fi
+    
+    # Check character set (only lowercase letters and numbers)
+    if [[ ! "$username" =~ ^[a-z0-9]+$ ]]; then
+        echo "Username must contain only lowercase letters and numbers"
+        return 1
+    fi
+    
+    # Check for reserved usernames
+    local reserved=("admin" "root" "postgres" "system" "guest" "user" "test" "server" "game" "gm" "master" "owner")
+    for reserved_name in "${reserved[@]}"; do
+        if [[ "$username" == "$reserved_name" ]]; then
+            echo "Username '$username' is reserved and cannot be used"
+            return 1
+        fi
+    done
+    
+    return 0
+}
+
+validate_password() {
+    local password="$1"
+    
+    # Minimum length check
+    if [[ ${#password} -lt 8 ]]; then
+        echo "Password must be at least 8 characters long"
+        return 1
+    fi
+    
+    # Maximum length check
+    if [[ ${#password} -gt 64 ]]; then
+        echo "Password must be less than 64 characters long"
+        return 1
+    fi
+    
+    # Character complexity check
+    local has_lower=0
+    local has_upper=0
+    local has_digit=0
+    local has_special=0
+    
+    if [[ "$password" =~ [a-z] ]]; then has_lower=1; fi
+    if [[ "$password" =~ [A-Z] ]]; then has_upper=1; fi
+    if [[ "$password" =~ [0-9] ]]; then has_digit=1; fi
+    if [[ "$password" =~ [^a-zA-Z0-9] ]]; then has_special=1; fi
+    
+    local complexity_score=$((has_lower + has_upper + has_digit + has_special))
+    
+    if [[ $complexity_score -lt 2 ]]; then
+        echo "Password must contain at least 2 of: lowercase, uppercase, digit, special character"
+        return 1
+    fi
+    
+    return 0
+}
+
+# SQL injection prevention
+escape_sql_string() {
+    local input="$1"
+    # Replace single quotes with two single quotes for PostgreSQL
+    echo "${input//\'/\'\'}"
 }
 
 check_dependencies() {
@@ -56,13 +131,21 @@ read_db_password() {
 create_game_account() {
     local db_password=$1
 
-    echo -e "\n${BLUE}--- Create New Game Account ---${NC}"
+    echo -e "\n${PURPLE}--- Create Enhanced Secure Game Account ---${NC}"
 
     local username
     while true; do
-        read -p "Username (3-16 chars, lowercase letters and numbers only): " username
-        if [[ "$username" =~ ^[a-z0-9]{3,16}$ ]]; then
-            local check_user_sql="SELECT 1 FROM tb_user WHERE mid = '$username';"
+        read -p "Username (3-16 chars, a-z, 0-9 only): " username
+        
+        local validation_result
+        validation_result=$(validate_username "$username")
+        
+        if [[ $? -eq 0 ]]; then
+            # Escape username for SQL safety
+            local safe_username
+            safe_username=$(escape_sql_string "$username")
+            
+            local check_user_sql="SELECT 1 FROM tb_user WHERE mid = '$safe_username';"
             local existing_user
             existing_user=$(PGPASSWORD="$db_password" sudo -H -u "$DB_USER" psql -qtA -d "$DB_NAME_MEMBER" -c "$check_user_sql")
             local psql_exit_code=$?
@@ -76,28 +159,37 @@ create_game_account() {
                  break
             fi
         else
-            echo -e "${RED}[ERROR] Invalid username format. Must be 3-16 chars, lowercase letters (a-z), and numbers (0-9).${NC}" >&2
+            echo -e "${RED}[ERROR] $validation_result${NC}" >&2
         fi
     done
 
     local password password_confirm
     while true; do
-        read -s -p "Password (min 6 characters): " password
+        read -s -p "Password (min 8 chars, secure): " password
         echo ""
-        read -s -p "Confirm Password: " password_confirm
-        echo ""
-
-        if [[ ${#password} -lt 6 ]]; then
-            echo -e "${RED}[ERROR] Password must be at least 6 characters long.${NC}" >&2
-        elif [[ "$password" != "$password_confirm" ]]; then
-            echo -e "${RED}[ERROR] Passwords do not match. Please try again.${NC}" >&2
+        
+        local validation_result
+        validation_result=$(validate_password "$password")
+        
+        if [[ $? -eq 0 ]]; then
+            read -s -p "Confirm Password: " password_confirm
+            echo ""
+            
+            if [[ "$password" == "$password_confirm" ]]; then
+                break
+            else
+                echo -e "${RED}[ERROR] Passwords do not match. Please try again.${NC}" >&2
+            fi
         else
-            break
+            echo -e "${RED}[ERROR] $validation_result${NC}" >&2
         fi
     done
 
-    local password_hash
-    password_hash=$(echo -n "$password" | md5sum | cut -d ' ' -f1)
+    # Enhanced hashing - Game requires MD5 for compatibility
+    local password_hash_md5
+    password_hash_md5=$(echo -n "$password" | md5sum | cut -d ' ' -f1)
+    
+    # Note: Game system requires MD5 hash, cannot be changed to SHA256
 
     local pvalues_to_set=$DEFAULT_PVALUES
     local set_pvalues_choice
@@ -117,9 +209,14 @@ create_game_account() {
         echo -e "${BLUE}>> Using default pvalues: $pvalues_to_set${NC}"
     fi
 
-    echo -e "${BLUE}>> Adding account '$username' to the database...${NC}"
+    echo -e "${BLUE}>> Adding secure account '$username' to the database...${NC}"
 
-    local insert_member_sql="INSERT INTO tb_user (mid, password, pwd, pvalues) VALUES ('$username', '$password', '$password_hash', $pvalues_to_set) RETURNING idnum;"
+    # Use safe, escaped values for SQL queries
+    local safe_username safe_password
+    safe_username=$(escape_sql_string "$username")
+    safe_password=$(escape_sql_string "$password")
+
+    local insert_member_sql="INSERT INTO tb_user (mid, password, pwd, pvalues) VALUES ('$safe_username', '$safe_password', '$password_hash_md5', $pvalues_to_set) RETURNING idnum;"
     local user_id
     user_id=$(PGPASSWORD="$db_password" sudo -H -u "$DB_USER" psql -qtA -d "$DB_NAME_MEMBER" -c "$insert_member_sql")
     local psql_exit_code=$?
@@ -132,7 +229,7 @@ create_game_account() {
         echo -e "${GREEN}>> Account added to '$DB_NAME_MEMBER' successfully (ID: $user_id).${NC}"
     fi
 
-    local insert_account_sql="INSERT INTO accounts (id, username, password) VALUES ($user_id, '$username', '$password');"
+    local insert_account_sql="INSERT INTO accounts (id, username, password) VALUES ($user_id, '$safe_username', '$safe_password');"
     PGPASSWORD="$db_password" sudo -H -u "$DB_USER" psql -q -d "$DB_NAME_ACCOUNT" -c "$insert_account_sql"
     psql_exit_code=$?
 
@@ -145,13 +242,18 @@ create_game_account() {
         echo -e "${GREEN}>> Account added to '$DB_NAME_ACCOUNT' successfully.${NC}"
     fi
 
-    echo -e "${GREEN}--- Account '$username' created successfully! (pvalues: $pvalues_to_set) ---${NC}"
+    # Secure cleanup
+    unset password password_confirm password_hash_md5 safe_password
+
+    echo -e "${GREEN}--- Enhanced secure account '$username' created successfully! (pvalues: $pvalues_to_set) ---${NC}"
+    echo -e "${BLUE}[INFO] Account uses MD5 hashing as required by game system.${NC}"
     return 0
 }
 
-echo -e "${BLUE}
+echo -e "${PURPLE}
 ==================================================
-        Game Account Creation Tool
+        Enhanced AK Account Creation Tool
+        Enhanced Security & Validation
 ==================================================${NC}"
 
 check_dependencies

@@ -634,8 +634,15 @@ update_database_ips() {
     sudo -H -u "$DB_USER" psql -q -d "FFAccount" -c "UPDATE worlds SET ip = '$IP';" >/dev/null || error_exit "Failed to update IP in FFAccount."
     sudo -H -u "$DB_USER" psql -q -d "FFDB1" -c "UPDATE serverstatus SET ext_address = '$IP', int_address = '$IP' WHERE name != 'MissionServer';" >/dev/null || error_exit "Failed to update IP addresses in FFDB1."
     sudo -H -u "$DB_USER" psql -q -d "FFDB1" -c "UPDATE serverstatus SET ext_address = 'none' WHERE name = 'MissionServer';" >/dev/null || error_exit "Failed to update MissionServer IP in FFDB1."
-    echo -e "${GREEN}>> Database IP addresses updated.${NC}"
-    log_message "Database IP addresses updated."
+    
+    # Ensure base server ports are set correctly in serverstatus
+    echo -e "${BLUE}>> Setting base server ports in serverstatus...${NC}"
+    sudo -H -u "$DB_USER" psql -q -d "FFDB1" -c "UPDATE serverstatus SET port = 6543 WHERE name = 'LoginServer';" >/dev/null 2>&1
+    sudo -H -u "$DB_USER" psql -q -d "FFDB1" -c "UPDATE serverstatus SET port = 7777 WHERE name = 'TicketServer';" >/dev/null 2>&1
+    sudo -H -u "$DB_USER" psql -q -d "FFDB1" -c "UPDATE serverstatus SET port = 0 WHERE name IN ('WorldServer', 'ZoneServer');" >/dev/null 2>&1
+    
+    echo -e "${GREEN}>> Database IP addresses and ports updated.${NC}"
+    log_message "Database IP addresses and ports updated."
 }
 
 configure_grub() {
@@ -797,9 +804,8 @@ create_admin_account() {
 
     echo -e "${BLUE}>> Creating secure admin account...${NC}"
     
-    # Use stronger hashing (SHA256 + MD5 for compatibility)
+    # Use MD5 hashing as required by game system
     local admin_pwd_hash=$(echo -n "$password" | md5sum | cut -d ' ' -f1)
-    local admin_pwd_sha256=$(echo -n "$password" | sha256sum | cut -d ' ' -f1)
     
     cd /tmp
     sudo -H -u "$DB_USER" psql -q -d "FFMember" -c "INSERT INTO tb_user (mid, password, pwd, pvalues) VALUES ('$username', '$password', '$admin_pwd_hash', 999999);" >/dev/null || error_exit "Failed to create admin account in FFMember."
@@ -818,7 +824,7 @@ create_admin_account() {
     echo -e "${GREEN}>> Enhanced secure admin account '$username' created successfully.${NC}"
     
     # Secure cleanup
-    unset password password_confirm admin_pwd_hash admin_pwd_sha256
+    unset password password_confirm admin_pwd_hash
     ADMIN_USERNAME="$username"
 }
 
