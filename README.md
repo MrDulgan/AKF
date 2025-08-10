@@ -113,10 +113,6 @@ The centralized management interface providing professional-grade server adminis
 • Unified management interface
 ```
 
-**Deprecated Scripts** (redirected to Enhanced Server Manager):
-- `multi_server_manager.sh` → Use `server_manager.sh`
-- `multi_channel_manager.sh` → Use `server_manager.sh`
-
 ### 📊 **Enhanced Monitoring Features**
 - **Multi-instance support** - Manage multiple server installations
 - **Real-time switching** between server instances (`[i]` key)
@@ -129,7 +125,7 @@ The centralized management interface providing professional-grade server adminis
 
 ### 🎯 **Multi-Server Management**
 
-**NEW Enhanced Server Manager** - Unified interface with auto-detection:
+**Enhanced Server Manager** - Unified interface with auto-detection:
 ```bash
 # Launch unified server management interface
 ./server_manager.sh
@@ -150,13 +146,6 @@ The centralized management interface providing professional-grade server adminis
 • Unified removal with database cleanup
 ```
 
-**Legacy Management** (deprecated, redirected to Enhanced Server Manager):
-```bash
-./multi_server_manager.sh          # → Redirects to server_manager.sh
-./multi_channel_manager.sh         # → Redirects to server_manager.sh
-```
-
-### 🔧 **System Administration**
 ### 🔧 **System Administration**
 ```bash
 # SSH Configuration (if enabled during installation)
@@ -231,8 +220,6 @@ systemctl enable aurakingdom          # Auto-start on boot
 ├── restore.sh                 # Intelligent restore system
 ├── account_creator.sh         # Game account management
 ├── server_manager.sh          # 🆕 Enhanced Server Manager (unified)
-├── multi_server_manager.sh    # → Deprecated (redirects to server_manager.sh)
-├── multi_channel_manager.sh   # → Deprecated (redirects to server_manager.sh)
 ├── security_functions.sh      # Security management tools
 └── server_*.conf              # Server instance configurations
 
@@ -330,41 +317,6 @@ Created with ❤️ by **Dulgan**
 - Submit pull requests for improvements
 - Share configuration optimizations
 - Help test on different distributions
-
----
-
-## 📚 **Quick Reference**
-
-### 🚀 **Essential Commands**
-```bash
-# Quick start after installation
-./start                        # Start all servers/instances (non-blocking)
-./stop                         # Stop all servers/instances safely
-./akutools                     # Access centralized management suite
-./monitor.sh                   # Enhanced monitoring with instance switching
-
-# Enhanced server management
-./server_manager.sh            # 🆕 Unified server & channel management
-cd /root/AKUTools && ./server_manager.sh  # Direct access
-
-# Multi-instance operations  
-./monitor.sh                   # Switch between instances with 'i' key
-./akutools → Enhanced Server Manager  # Via AKUTools interface
-
-# System management
-systemctl status aurakingdom   # If systemd service installed
-tail -f /root/hxsy/Logs/startup/*.log  # View startup logs
-```
-
-### 🔧 **Configuration Files**
-```bash
-/etc/sysctl.d/99-gameserver-optimization.conf  # Kernel parameters
-/etc/security/limits.conf                       # Process limits
-/root/hxsy/setup.ini                            # Database config
-/root/AKUTools/server_*.conf                    # Server instances
-/root/multi_server.conf                         # Multi-server registry
-/root/multi_channel.conf                        # Multi-channel registry
-```
 
 ---
 
