@@ -57,6 +57,9 @@ cd /root && curl -o fullinstaller.sh https://raw.githubusercontent.com/MrDulgan/
 - **Real multi-server instances (same PostgreSQL, different ports)**
 - **Multi-channel support (multiple channels per server)**
 - **Cross-distribution compatibility** optimizations
+- **🆕 Enhanced Server Manager** - Unified management interface
+- **🆕 Auto-database password detection** - No manual entry required
+- **🆕 Instance auto-discovery** - Automatic detection of existing servers
 
 ## 🎮 Server Management
 
@@ -88,36 +91,69 @@ The centralized management interface providing professional-grade server adminis
 /root/AKUTools/backup.sh            # Advanced backup system
 /root/AKUTools/restore.sh           # Intelligent restore system
 /root/AKUTools/account_creator.sh   # Game account management
-/root/AKUTools/multi_server_manager.sh   # Multi-server orchestration
-/root/AKUTools/multi_channel_manager.sh  # Multi-channel management
+/root/AKUTools/server_manager.sh    # 🆕 Enhanced Server Manager (unified)
+/root/AKUTools/security_functions.sh # Security management tools
 ```
+
+### 🎯 **Enhanced Server Manager** (`server_manager.sh`)
+
+**NEW**: Unified interface combining multi-server and multi-channel management with advanced features:
+
+```bash
+# Launch Enhanced Server Manager
+/root/hxsy/server_manager.sh
+
+# Features:
+• Auto-detects database password from setup.ini
+• Multi-server instance creation and management
+• Multi-channel support for any server instance  
+• Instance auto-discovery and switching
+• Database integration with automatic setup
+• Server/channel removal with safety checks
+• Unified management interface
+```
+
+**Deprecated Scripts** (redirected to Enhanced Server Manager):
+- `multi_server_manager.sh` → Use `server_manager.sh`
+- `multi_channel_manager.sh` → Use `server_manager.sh`
 
 ### 📊 **Enhanced Monitoring Features**
 - **Multi-instance support** - Manage multiple server installations
 - **Real-time switching** between server instances (`[i]` key)
 - **Quick instance access** (number keys 1-9)
 - **Integrated AKUTools** access (`[a]` key)
-- **Multi-server manager** access (`[m]` key)
+- **Enhanced Server Manager** access (`[s]` key) - 🆕 Unified management
 - **Advanced process monitoring** with crash detection
 - **Resource usage tracking** (CPU, RAM, Network)
 - **Log file integration** and error detection
 
 ### 🎯 **Multi-Server Management**
-```bash
-# Create additional server instances
-./multi_server_manager.sh create pvp_server    # Create PVP server
-./multi_server_manager.sh create pve_server    # Create PVE server  
-./multi_server_manager.sh list                 # List all servers
-./multi_server_manager.sh start pvp_server     # Start specific server
-./multi_server_manager.sh stop pve_server      # Stop specific server
-./multi_server_manager.sh monitor              # Monitor all servers
 
-# Multi-channel management (same server, multiple channels)
-./multi_channel_manager.sh create 1            # Create Ch02 (channel 2)
-./multi_channel_manager.sh create 2            # Create Ch03 (channel 3)
-./multi_channel_manager.sh list                # List all channels
-./multi_channel_manager.sh remove Ch02         # Remove channel 2
-./multi_channel_manager.sh info                # Show database info
+**NEW Enhanced Server Manager** - Unified interface with auto-detection:
+```bash
+# Launch unified server management interface
+./server_manager.sh
+
+# Create server instances (with automatic database setup)
+./server_manager.sh → Create New Server Instance → pvp_server
+./server_manager.sh → Create New Server Instance → pve_server
+
+# Create channels for any instance  
+./server_manager.sh → Create New Channel → Select Instance → Channel Number
+
+# Features:
+• Auto-detects PostgreSQL password from setup.ini
+• Instance auto-discovery (all existing servers)
+• Database auto-creation and configuration
+• Port management with conflict detection
+• Safety checks and validation
+• Unified removal with database cleanup
+```
+
+**Legacy Management** (deprecated, redirected to Enhanced Server Manager):
+```bash
+./multi_server_manager.sh          # → Redirects to server_manager.sh
+./multi_channel_manager.sh         # → Redirects to server_manager.sh
 ```
 
 ### 🔧 **System Administration**
@@ -194,8 +230,10 @@ systemctl enable aurakingdom          # Auto-start on boot
 ├── backup.sh                  # Advanced backup system
 ├── restore.sh                 # Intelligent restore system
 ├── account_creator.sh         # Game account management
-├── multi_server_manager.sh    # Multi-server orchestration
-├── multi_channel_manager.sh   # Multi-channel management
+├── server_manager.sh          # 🆕 Enhanced Server Manager (unified)
+├── multi_server_manager.sh    # → Deprecated (redirects to server_manager.sh)
+├── multi_channel_manager.sh   # → Deprecated (redirects to server_manager.sh)
+├── security_functions.sh      # Security management tools
 └── server_*.conf              # Server instance configurations
 
 /root/hxsy-pvp/                # Additional PVP server instance
@@ -276,6 +314,7 @@ systemctl enable aurakingdom          # Auto-start on boot
 Created with ❤️ by **Dulgan**
 
 ### 📝 **Version History**
+- **v4.0+**: Enhanced Server Manager, Auto-DB detection, Unified interface, Instance auto-discovery
 - **v3.0+**: AKUTools Suite, Enhanced monitoring, Multi-distribution support
 - **v2.x**: Multi-server/channel support, Advanced security
 - **v1.x**: Basic automation, PostgreSQL integration
@@ -299,14 +338,18 @@ Created with ❤️ by **Dulgan**
 ### 🚀 **Essential Commands**
 ```bash
 # Quick start after installation
-./start                        # Start server (non-blocking)
-./akutools                     # Access management suite
-./monitor.sh                   # Enhanced monitoring
+./start                        # Start all servers/instances (non-blocking)
+./stop                         # Stop all servers/instances safely
+./akutools                     # Access centralized management suite
+./monitor.sh                   # Enhanced monitoring with instance switching
 
-# Multi-server operations
-cd /root/AKUTools
-./multi_server_manager.sh create myserver
-./monitor.sh                   # Switch between instances with 'i'
+# Enhanced server management
+./server_manager.sh            # 🆕 Unified server & channel management
+cd /root/AKUTools && ./server_manager.sh  # Direct access
+
+# Multi-instance operations  
+./monitor.sh                   # Switch between instances with 'i' key
+./akutools → Enhanced Server Manager  # Via AKUTools interface
 
 # System management
 systemctl status aurakingdom   # If systemd service installed
@@ -319,6 +362,8 @@ tail -f /root/hxsy/Logs/startup/*.log  # View startup logs
 /etc/security/limits.conf                       # Process limits
 /root/hxsy/setup.ini                            # Database config
 /root/AKUTools/server_*.conf                    # Server instances
+/root/multi_server.conf                         # Multi-server registry
+/root/multi_channel.conf                        # Multi-channel registry
 ```
 
 ---

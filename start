@@ -17,31 +17,185 @@ MAX_STARTUP_TIME=30
 HEALTH_CHECK_INTERVAL=2
 DATABASE_CHECK_TIMEOUT=10
 
+# Multi-server configuration
+declare -A SERVER_INSTANCES
+declare -A SERVER_PIDS
+STARTUP_MODE="single"  # single, multi, selective
+
 # Set locale
 export LC_ALL=C
 
-# Check for multi-channel configuration
+# Detect available server instances
+detect_server_instances() {
+    echo -e "${BLUE}>> Detecting server instances...${NC}"
+    
+    # Always include the default instance
+    if [[ -d "$INSTALL_DIR" ]]; then
+        SERVER_INSTANCES["default"]="$INSTALL_DIR"
+        echo -e "${GREEN}   - Found default instance: $INSTALL_DIR${NC}"
+    fi
+    
+    # Check for additional server instances
+    for dir in /root/hxsy*; do
+        if [[ -d "$dir" && "$dir" != "$INSTALL_DIR" ]]; then
+            local instance_name=$(basename "$dir")
+            SERVER_INSTANCES["$instance_name"]="$dir"
+            echo -e "${GREEN}   - Found additional instance: $instance_name ($dir)${NC}"
+        fi
+    done
+    
+    # Check AKUTools directory for server configurations
+    if [[ -d "/root/AKUTools" ]]; then
+        for config in /root/AKUTools/server_*.conf; do
+            if [[ -f "$config" ]]; then
+                local instance_name=$(basename "$config" .conf | sed 's/server_//')
+                local server_path=$(grep "INSTALL_DIR=" "$config" 2>/dev/null | cut -d'=' -f2)
+                if [[ -n "$server_path" && -d "$server_path" ]]; then
+                    SERVER_INSTANCES["$instance_name"]="$server_path"
+                    echo -e "${GREEN}   - Found configured instance: $instance_name ($server_path)${NC}"
+                fi
+            fi
+        done
+    fi
+    
+    echo -e "${BLUE}>> Total server instances detected: ${#SERVER_INSTANCES[@]}${NC}"
+}
+
+# Check for multi-channel configuration within an instance
 check_multi_channel() {
-    echo -e "${BLUE}>> Checking for multi-channel configuration...${NC}"
+    local instance_dir="$1"
+    local instance_name="$2"
+    
+    echo -e "${BLUE}>> Checking multi-channel configuration for $instance_name...${NC}"
     local channel_configs=()
     
     # Find all channel configuration files
-    for config in "$INSTALL_DIR"/config_channel_*.ini; do
+    for config in "$instance_dir"/config_channel_*.ini; do
         if [[ -f "$config" ]]; then
             channel_configs+=("$config")
         fi
     done
     
+    # Check for Channel directories
+    for dir in "$instance_dir"/Channel_*; do
+        if [[ -d "$dir" ]]; then
+            local channel_name=$(basename "$dir")
+            echo -e "${GREEN}   - Found channel directory: $channel_name${NC}"
+        fi
+    done
+    
     if [[ ${#channel_configs[@]} -gt 0 ]]; then
-        echo -e "${GREEN}>> Found ${#channel_configs[@]} additional channel(s):${NC}"
+        echo -e "${GREEN}>> Found ${#channel_configs[@]} additional channel config(s) for $instance_name:${NC}"
         for config in "${channel_configs[@]}"; do
             local channel_name=$(basename "$config" .ini | sed 's/config_channel_/Channel /')
             echo -e "${GREEN}   - $channel_name${NC}"
         done
-        echo -e "${YELLOW}>> Note: Multi-channel support active. Channels will be available in-game.${NC}"
+        echo -e "${YELLOW}>> Note: Multi-channel support active for $instance_name.${NC}"
+        return 0
     else
-        echo -e "${BLUE}>> Single channel mode (Aurora-Ch01 only).${NC}"
+        echo -e "${BLUE}>> Single channel mode for $instance_name (Aurora-Ch01 only).${NC}"
+        return 1
     fi
+}
+
+# Ask user about startup mode
+select_startup_mode() {
+    if [[ ${#SERVER_INSTANCES[@]} -eq 1 ]]; then
+        STARTUP_MODE="single"
+        echo -e "${BLUE}>> Single server instance detected. Starting in single mode.${NC}"
+        return
+    fi
+    
+    echo -e "${CYAN}
+==================================================
+           Multi-Server Startup Options
+==================================================${NC}"
+    echo -e "${GREEN}Available server instances:${NC}"
+    local counter=1
+    for instance in "${!SERVER_INSTANCES[@]}"; do
+        echo -e "  [$counter] $instance - ${SERVER_INSTANCES[$instance]}"
+        ((counter++))
+    done
+    
+    echo -e "\n${YELLOW}Startup options:${NC}"
+    echo -e "  [1] Start ALL server instances"
+    echo -e "  [2] Start ONLY default instance (${INSTALL_DIR})"
+    echo -e "  [3] Select specific instances to start"
+    echo -e "  [4] Show details and decide"
+    
+    read -p "$(echo -e ${BLUE}Select startup mode [1-4]: ${NC})" choice
+    
+    case $choice in
+        1)
+            STARTUP_MODE="multi"
+            echo -e "${GREEN}>> Selected: Start ALL server instances${NC}"
+            ;;
+        2)
+            STARTUP_MODE="single"
+            echo -e "${GREEN}>> Selected: Start ONLY default instance${NC}"
+            ;;
+        3)
+            STARTUP_MODE="selective"
+            echo -e "${GREEN}>> Selected: Selective instance startup${NC}"
+            ;;
+        4)
+            show_instance_details
+            select_startup_mode
+            return
+            ;;
+        *)
+            echo -e "${YELLOW}>> Invalid choice. Defaulting to single instance mode.${NC}"
+            STARTUP_MODE="single"
+            ;;
+    esac
+}
+
+# Show detailed instance information
+show_instance_details() {
+    echo -e "${CYAN}
+==================================================
+           Server Instance Details
+==================================================${NC}"
+    
+    for instance in "${!SERVER_INSTANCES[@]}"; do
+        local instance_dir="${SERVER_INSTANCES[$instance]}"
+        echo -e "\n${GREEN}Instance: $instance${NC}"
+        echo -e "  Path: $instance_dir"
+        
+        # Check if servers exist
+        local servers=("TicketServer" "GatewayServer" "LoginServer" "MissionServer" "WorldServer" "ZoneServer")
+        local server_count=0
+        for server in "${servers[@]}"; do
+            if [[ -d "$instance_dir/$server" ]]; then
+                ((server_count++))
+            fi
+        done
+        echo -e "  Server components: $server_count/6"
+        
+        # Check for multi-channel
+        if check_multi_channel "$instance_dir" "$instance" >/dev/null 2>&1; then
+            echo -e "  Multi-channel: ${GREEN}Yes${NC}"
+        else
+            echo -e "  Multi-channel: ${YELLOW}No${NC}"
+        fi
+        
+        # Check if currently running
+        local running_servers=0
+        for server in "${servers[@]}"; do
+            if pgrep -f "$instance_dir/$server" > /dev/null; then
+                ((running_servers++))
+            fi
+        done
+        
+        if [[ $running_servers -gt 0 ]]; then
+            echo -e "  Status: ${YELLOW}$running_servers/$server_count servers running${NC}"
+        else
+            echo -e "  Status: ${BLUE}Stopped${NC}"
+        fi
+    done
+    
+    echo -e "\n${BLUE}Press Enter to continue...${NC}"
+    read
 }
 
 # Dependency check
@@ -137,32 +291,182 @@ setup_logging() {
 echo -e "${PURPLE}=================================================="
 echo -e "         Enhanced AK Server Startup Script       "
 echo -e "               Developer: Dulgan                 "
-echo -e "==================================================${NC}" | tee -a "$LOGFILE"
+echo -e "==================================================${NC}"
 
 # Pre-flight checks
 check_dependencies
 check_system_resources
 setup_logging
 check_database_connection
-check_multi_channel
 
-# Stop any running servers before starting
-echo -e "${BLUE}>> Stopping any existing server processes...${NC}" | tee -a "$LOGFILE"
-for srv in ZoneServer WorldServer MissionServer LoginServer GatewayServer TicketServer; do
-    if pgrep -f "$srv" > /dev/null; then
-        echo -e "${YELLOW}   - Stopping existing $srv process...${NC}" | tee -a "$LOGFILE"
-        pkill -TERM -f "$srv" 2>/dev/null
-        sleep 2
+echo | tee -a "$LOGFILE"  # Start logging after LOGFILE is defined
+
+# Detect and configure multi-server startup
+detect_server_instances
+if [[ ${#SERVER_INSTANCES[@]} -gt 1 ]]; then
+    select_startup_mode
+else
+    STARTUP_MODE="single"
+    echo -e "${BLUE}>> Single server instance detected. Starting in single mode.${NC}" | tee -a "$LOGFILE"
+fi
+
+# Stop any running servers before starting (based on startup mode)
+stop_existing_servers() {
+    echo -e "${BLUE}>> Stopping any existing server processes...${NC}" | tee -a "$LOGFILE"
+    
+    if [[ "$STARTUP_MODE" == "single" ]]; then
+        # Stop only default instance servers
+        for srv in ZoneServer WorldServer MissionServer LoginServer GatewayServer TicketServer; do
+            if pgrep -f "$INSTALL_DIR.*$srv" > /dev/null; then
+                echo -e "${YELLOW}   - Stopping existing $srv process (default instance)...${NC}" | tee -a "$LOGFILE"
+                pkill -TERM -f "$INSTALL_DIR.*$srv" 2>/dev/null
+                sleep 1
+            fi
+        done
+    else
+        # Stop all server processes across all instances
+        for srv in ZoneServer WorldServer MissionServer LoginServer GatewayServer TicketServer; do
+            if pgrep -f "$srv" > /dev/null; then
+                echo -e "${YELLOW}   - Stopping existing $srv processes (all instances)...${NC}" | tee -a "$LOGFILE"
+                pkill -TERM -f "$srv" 2>/dev/null
+                sleep 1
+            fi
+        done
+    fi
+    
+    # Force kill any remaining processes
+    sleep 2
+    for srv in ZoneServer WorldServer MissionServer LoginServer GatewayServer TicketServer; do
         if pgrep -f "$srv" > /dev/null; then
             pkill -KILL -f "$srv" 2>/dev/null
         fi
+    done
+    sleep 3
+}
+
+stop_existing_servers
+
+# Start server instances based on selected mode
+start_server_instances() {
+    local START_TIME=$(date +%s)
+    local total_servers_started=0
+    
+    case "$STARTUP_MODE" in
+        "single")
+            echo -e "${GREEN}>> Starting default server instance...${NC}" | tee -a "$LOGFILE"
+            start_single_instance "$INSTALL_DIR" "default"
+            total_servers_started=6
+            ;;
+        "multi")
+            echo -e "${GREEN}>> Starting ALL server instances...${NC}" | tee -a "$LOGFILE"
+            for instance in "${!SERVER_INSTANCES[@]}"; do
+                local instance_dir="${SERVER_INSTANCES[$instance]}"
+                echo -e "${CYAN}>> Starting instance: $instance ($instance_dir)${NC}" | tee -a "$LOGFILE"
+                start_single_instance "$instance_dir" "$instance"
+                ((total_servers_started += 6))
+                echo -e "${GREEN}   - Instance $instance started successfully${NC}" | tee -a "$LOGFILE"
+                sleep 2  # Brief pause between instances
+            done
+            ;;
+        "selective")
+            echo -e "${GREEN}>> Starting selected server instances...${NC}" | tee -a "$LOGFILE"
+            select_instances_to_start
+            ;;
+    esac
+    
+    echo -e "${GREEN}>> Server startup completed in $(($(date +%s) - START_TIME)) seconds.${NC}" | tee -a "$LOGFILE"
+    echo -e "${BLUE}>> Total servers started: $total_servers_started${NC}" | tee -a "$LOGFILE"
+}
+
+# Start a single server instance
+start_single_instance() {
+    local instance_dir="$1"
+    local instance_name="$2"
+    
+    echo -e "${BLUE}   - Starting servers for $instance_name...${NC}" | tee -a "$LOGFILE"
+    
+    # Check for multi-channel configuration
+    check_multi_channel "$instance_dir" "$instance_name"
+    
+    # Start servers in dependency order
+    start_server "$instance_dir/TicketServer/" "TicketServer" "7777" "$instance_name"
+    start_server "$instance_dir/GatewayServer/" "GatewayServer" "" "$instance_name"
+    start_server "$instance_dir/LoginServer/" "LoginServer" "" "$instance_name"
+    start_server "$instance_dir/MissionServer/" "MissionServer" "" "$instance_name"
+    start_server "$instance_dir/WorldServer/" "WorldServer" "" "$instance_name"
+    start_server "$instance_dir/ZoneServer/" "ZoneServer" "" "$instance_name"
+    
+    # Start additional channel servers if they exist
+    for channel_dir in "$instance_dir"/Channel_*; do
+        if [[ -d "$channel_dir" ]]; then
+            local channel_name=$(basename "$channel_dir")
+            echo -e "${CYAN}   - Starting $channel_name servers...${NC}" | tee -a "$LOGFILE"
+            
+            # Start channel-specific servers
+            if [[ -f "$channel_dir/ZoneServer" ]]; then
+                start_server "$channel_dir/" "ZoneServer" "" "$instance_name-$channel_name"
+            fi
+            if [[ -f "$channel_dir/WorldServer" ]]; then
+                start_server "$channel_dir/" "WorldServer" "" "$instance_name-$channel_name"
+            fi
+        fi
+    done
+}
+
+# Select specific instances to start
+select_instances_to_start() {
+    echo -e "${CYAN}Select instances to start (space-separated numbers or 'all'):${NC}"
+    local counter=1
+    declare -a instance_list
+    
+    for instance in "${!SERVER_INSTANCES[@]}"; do
+        echo -e "  [$counter] $instance - ${SERVER_INSTANCES[$instance]}"
+        instance_list[$counter]="$instance"
+        ((counter++))
+    done
+    
+    read -p "$(echo -e ${BLUE}Enter selections: ${NC})" selections
+    
+    if [[ "$selections" == "all" ]]; then
+        for instance in "${!SERVER_INSTANCES[@]}"; do
+            local instance_dir="${SERVER_INSTANCES[$instance]}"
+            echo -e "${CYAN}>> Starting instance: $instance ($instance_dir)${NC}" | tee -a "$LOGFILE"
+            start_single_instance "$instance_dir" "$instance"
+        done
+    else
+        for selection in $selections; do
+            if [[ "$selection" =~ ^[0-9]+$ ]] && [[ -n "${instance_list[$selection]}" ]]; then
+                local instance="${instance_list[$selection]}"
+                local instance_dir="${SERVER_INSTANCES[$instance]}"
+                echo -e "${CYAN}>> Starting selected instance: $instance ($instance_dir)${NC}" | tee -a "$LOGFILE"
+                start_single_instance "$instance_dir" "$instance"
+            fi
+        done
     fi
-done
-sleep 3
+}
 
 # Function to handle CTRL+C
 trap_ctrlc() {
-    echo -e "\n${RED}>> CTRL+C detected, stopping the server...${NC}" | tee -a "$LOGFILE"
+    echo -e "\n${RED}>> CTRL+C detected, stopping servers...${NC}" | tee -a "$LOGFILE"
+    if [[ "$STARTUP_MODE" == "single" ]]; then
+        "$INSTALL_DIR/stop"
+    else
+        # Stop all instances
+        for instance in "${!SERVER_INSTANCES[@]}"; do
+            local instance_dir="${SERVER_INSTANCES[$instance]}"
+            if [[ -f "$instance_dir/stop" ]]; then
+                echo -e "${YELLOW}   - Stopping instance: $instance${NC}"
+                "$instance_dir/stop"
+            fi
+        done
+    fi
+    exit 0
+}
+
+trap trap_ctrlc INT
+
+# Start the selected server instances
+start_server_instances
     "$INSTALL_DIR/stop"
     exit 0
 }
@@ -190,27 +494,27 @@ check_server_health() {
 }
 
 # Function to start a server with enhanced monitoring
-declare -A SERVER_PIDS
 start_server() {
     local server_path="$1"
     local server_exec="$2"
     local port="$3"
+    local instance_name="${4:-default}"
 
-    echo -e "${BLUE}>> Starting $server_exec...${NC}" | tee -a "$LOGFILE"
+    echo -e "${BLUE}>> Starting $server_exec ($instance_name)...${NC}" | tee -a "$LOGFILE"
     
-    cd "$server_path" || { echo -e "${RED}>> Cannot access $server_path.${NC}" | tee -a "$LOGFILE"; exit 1; }
-    chmod 755 "$server_exec"
+    cd "$server_path" || { echo -e "${RED}>> Cannot access $server_path.${NC}" | tee -a "$LOGFILE"; return 1; }
+    chmod 755 "$server_exec" 2>/dev/null
 
     # Check if server is already running
-    if pgrep -f "$server_exec" > /dev/null; then
-        echo -e "${YELLOW}>> $server_exec is already running. Skipping start.${NC}" | tee -a "$LOGFILE"
+    if pgrep -f "$server_path.*$server_exec" > /dev/null; then
+        echo -e "${YELLOW}>> $server_exec ($instance_name) is already running. Skipping start.${NC}" | tee -a "$LOGFILE"
         return
     fi
 
     # Verify server binary exists and is executable
     if [[ ! -x "./$server_exec" ]]; then
-        echo -e "${RED}>> Server binary $server_exec not found or not executable.${NC}" | tee -a "$LOGFILE"
-        exit 1
+        echo -e "${RED}>> Server binary $server_exec not found or not executable in $server_path.${NC}" | tee -a "$LOGFILE"
+        return 1
     fi
 
     # Start server with optional port
@@ -222,7 +526,7 @@ start_server() {
     fi
 
     local pid=$!
-    SERVER_PIDS["$server_exec"]=$pid
+    SERVER_PIDS["${instance_name}-${server_exec}"]=$pid
 
     # Enhanced health check
     if check_server_health "$server_exec" "$pid"; then
@@ -273,48 +577,141 @@ echo -e "${BLUE}>> Startup log saved to: $LOGFILE${NC}"
 
 echo -e "${YELLOW}
 >> Management Tools Available:${NC}"
-echo -e "${GREEN}   • Monitor server status    : ./monitor.sh${NC}"
-echo -e "${GREEN}   • Backup server data       : ./backup.sh${NC}"
-echo -e "${GREEN}   • Restore server data      : ./restore.sh${NC}"
-echo -e "${GREEN}   • Create game accounts     : ./account_creator.sh${NC}"
-echo -e "${GREEN}   • AKUTools suite          : ./akutools${NC}"
-echo -e "${GREEN}   • Stop server              : ./stop${NC}"
+# Final status and management information
+display_final_status() {
+    echo -e "${PURPLE}
+==================================================
+            Server Startup Complete!
+==================================================${NC}"
+    
+    case "$STARTUP_MODE" in
+        "single")
+            echo -e "${GREEN}>> Default server instance is now running.${NC}"
+            ;;
+        "multi")
+            echo -e "${GREEN}>> All ${#SERVER_INSTANCES[@]} server instances are now running.${NC}"
+            ;;
+        "selective")
+            echo -e "${GREEN}>> Selected server instances are now running.${NC}"
+            ;;
+    esac
+    
+    echo -e "${BLUE}>> Server logs are being written to individual instance log directories${NC}"
+    
+    echo -e "${YELLOW}
+>> Management Tools Available:${NC}"
+    echo -e "${GREEN}   • Enhanced monitor (multi-server) : ./monitor.sh${NC}"
+    echo -e "${GREEN}   • Backup server data              : ./backup.sh${NC}"
+    echo -e "${GREEN}   • Restore server data             : ./restore.sh${NC}"
+    echo -e "${GREEN}   • Create game accounts            : ./account_creator.sh${NC}"
+    echo -e "${GREEN}   • AKUTools suite                 : ./akutools${NC}"
+    echo -e "${GREEN}   • Stop servers                   : ./stop${NC}"
 
-# Check if AKUTools is available
-if [ -f "./akutools" ]; then
-    echo -e "${BLUE}
+    # Check if AKUTools is available
+    if [ -f "./akutools" ]; then
+        echo -e "${BLUE}
 >> Advanced Management (AKUTools):${NC}"
-    echo -e "${GREEN}   • Multi-server management  : /root/AKUTools/multi_server_manager.sh${NC}"
-    echo -e "${GREEN}   • Multi-channel management : /root/AKUTools/multi_channel_manager.sh${NC}"
-fi
+        echo -e "${GREEN}   • Multi-server management  : /root/AKUTools/multi_server_manager.sh${NC}"
+        echo -e "${GREEN}   • Multi-channel management : /root/AKUTools/multi_channel_manager.sh${NC}"
+        echo -e "${GREEN}   • Enhanced monitoring      : Monitor with 'i' key to switch instances${NC}"
+    fi
 
-echo -e "${PURPLE}
->> The server is now running in the background.
+    echo -e "${PURPLE}
+>> The servers are now running in the background.
 >> You can safely close this terminal or use it for other tasks.
->> Use './stop' to shutdown the server when needed.
+>> Use './stop' to shutdown servers when needed.
 ==================================================${NC}"
 
-# Quick server status check
-echo -e "${BLUE}>> Quick Status Check:${NC}"
-local active_servers=0
-for server in "${!SERVER_PIDS[@]}"; do
-    pid=${SERVER_PIDS[$server]}
-    if ps -p $pid > /dev/null 2>&1; then
-        echo -e "${GREEN}   ✓ $server (PID: $pid)${NC}"
-        ((active_servers++))
-    else
-        echo -e "${RED}   ✗ $server (not running)${NC}"
-    fi
-done
+    # Quick server status check for all instances
+    echo -e "${BLUE}>> Quick Status Check:${NC}"
+    local total_active_servers=0
+    local total_expected_servers=0
+    
+    for instance in "${!SERVER_INSTANCES[@]}"; do
+        local instance_dir="${SERVER_INSTANCES[$instance]}"
+        local instance_active=0
+        local instance_expected=6  # Basic server count
+        
+        echo -e "${CYAN}   Instance: $instance${NC}"
+        
+        # Check basic servers
+        for server_type in TicketServer GatewayServer LoginServer MissionServer WorldServer ZoneServer; do
+            local server_key="${instance}-${server_type}"
+            if [[ -n "${SERVER_PIDS[$server_key]}" ]]; then
+                local pid=${SERVER_PIDS[$server_key]}
+                if ps -p $pid > /dev/null 2>&1; then
+                    echo -e "${GREEN}     ✓ $server_type (PID: $pid)${NC}"
+                    ((instance_active++))
+                    ((total_active_servers++))
+                else
+                    echo -e "${RED}     ✗ $server_type (not running)${NC}"
+                fi
+                ((total_expected_servers++))
+            fi
+        done
+        
+        # Check channel servers
+        for channel_dir in "$instance_dir"/Channel_*; do
+            if [[ -d "$channel_dir" ]]; then
+                local channel_name=$(basename "$channel_dir")
+                for server_type in ZoneServer WorldServer; do
+                    local server_key="${instance}-${channel_name}-${server_type}"
+                    if [[ -n "${SERVER_PIDS[$server_key]}" ]]; then
+                        local pid=${SERVER_PIDS[$server_key]}
+                        if ps -p $pid > /dev/null 2>&1; then
+                            echo -e "${GREEN}     ✓ $channel_name-$server_type (PID: $pid)${NC}"
+                            ((instance_active++))
+                            ((total_active_servers++))
+                        else
+                            echo -e "${RED}     ✗ $channel_name-$server_type (not running)${NC}"
+                        fi
+                        ((total_expected_servers++))
+                    fi
+                done
+            fi
+        done
+        
+        echo -e "${BLUE}     Instance status: $instance_active servers running${NC}"
+    done
 
-echo -e "${GREEN}>> $active_servers out of ${#SERVER_PIDS[@]} servers are running.${NC}"
+    echo -e "${GREEN}>> Total: $total_active_servers out of $total_expected_servers servers are running.${NC}"
 
-# Save PID information for management scripts
-cat > "$INSTALL_DIR/.server_pids" << EOF
-# Server PID information - $(date)
-# Format: SERVER_NAME=PID
+    # Save PID information for management scripts
+    save_pid_information
+    
+    echo -e "${BLUE}>> Server startup mode: $STARTUP_MODE${NC}"
+    echo -e "${BLUE}>> Use enhanced monitor (./monitor.sh) to switch between instances${NC}"
+    echo -e "${YELLOW}>> Happy gaming! The servers are ready for connections.${NC}"
+}
+
+# Save PID information for all instances
+save_pid_information() {
+    # Save to default instance directory
+    cat > "$INSTALL_DIR/.server_pids" << EOF
+# Multi-Server PID information - $(date)
+# Startup Mode: $STARTUP_MODE
+# Format: INSTANCE-SERVER=PID
 $(for server in "${!SERVER_PIDS[@]}"; do echo "$server=${SERVER_PIDS[$server]}"; done)
 EOF
 
-echo -e "${BLUE}>> Server PID information saved to $INSTALL_DIR/.server_pids${NC}"
-echo -e "${YELLOW}>> Happy gaming! The server is ready for connections.${NC}"
+    # Save to each instance directory
+    for instance in "${!SERVER_INSTANCES[@]}"; do
+        local instance_dir="${SERVER_INSTANCES[$instance]}"
+        if [[ "$instance_dir" != "$INSTALL_DIR" ]]; then
+            cat > "$instance_dir/.server_pids" << EOF
+# Server PID information for $instance - $(date)
+# Startup Mode: $STARTUP_MODE
+$(for server in "${!SERVER_PIDS[@]}"; do 
+    if [[ "$server" == "$instance"-* ]]; then
+        echo "$server=${SERVER_PIDS[$server]}"
+    fi
+done)
+EOF
+        fi
+    done
+    
+    echo -e "${BLUE}>> Server PID information saved to instance directories${NC}"
+}
+
+# Display final status
+display_final_status
