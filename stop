@@ -1,543 +1,70 @@
 #!/bin/bash
 
-# Enhanced AK Multi-Server Stop Script
-# Developer: Dulgan
-
 # Color codes
 GREEN='\e[1;32m'
 BLUE='\e[0;36m'
 RED='\e[0;31m'
-YELLOW='\e[1;33m'
-PURPLE='\e[0;35m'
-CYAN='\e[0;96m'
 NC='\e[0m' # No Color
 
-# Configuration
+# Installation directory and log directory
 INSTALL_DIR="/root/hxsy"
 LOG_DIR="$INSTALL_DIR/Logs"
 CURRENT_DATE=$(date +%Y-%m-%d)
-GRACEFUL_TIMEOUT=15
-FORCE_TIMEOUT=5
-
-# Server tracking arrays
-declare -A SERVER_INSTANCES
-declare -A DISCOVERED_SERVERS
 
 # Introductory message
-echo -e "${PURPLE}=================================================="
-echo -e "        Enhanced AK Multi-Server Stop Script       "
-echo -e "               Developer: Dulgan                 "
+echo -e "${BLUE}=================================================="
+echo -e "             AK Server Stop Script                "
+echo -e "                Developer: Dulgan                 "
 echo -e "==================================================${NC}"
 
-# Detect all server instances
-detect_server_instances() {
-    echo -e "${BLUE}>> Detecting server instances...${NC}"
-    
-    # Default instance
-    if [[ -d "$INSTALL_DIR" ]]; then
-        # Check for server executables
-        local has_servers=false
-        for server_file in TicketServer AccountServer LoginServer WorldServer ZoneServer GatewayServer MissionServer; do
-            if [[ -f "$INSTALL_DIR/$server_file" && -x "$INSTALL_DIR/$server_file" ]]; then
-                has_servers=true
-                break
-            fi
-        done
-        
-        if [[ "$has_servers" == "true" ]]; then
-            SERVER_INSTANCES["default"]="$INSTALL_DIR"
-            echo -e "${GREEN}   • Found default instance: $INSTALL_DIR${NC}"
-        fi
-    fi
-    
-    # Search for additional instances (hxsy_* and hxsy-*)
-    local instance_count=0
-    for instance_dir in /root/hxsy_* /root/hxsy-*; do
-        if [[ -d "$instance_dir" ]]; then
-            # Check for server executables
-            local has_servers=false
-            for server_file in TicketServer AccountServer LoginServer WorldServer ZoneServer GatewayServer MissionServer; do
-                if [[ -f "$instance_dir/$server_file" && -x "$instance_dir/$server_file" ]]; then
-                    has_servers=true
-                    break
-                fi
-            done
-            
-            if [[ "$has_servers" == "true" ]]; then
-                local instance_name=$(basename "$instance_dir")
-                # Clean up instance name
-                if [[ "$instance_name" == hxsy_* ]]; then
-                    instance_name=${instance_name#hxsy_}
-                elif [[ "$instance_name" == hxsy-* ]]; then
-                    instance_name=${instance_name#hxsy-}
-                fi
-                SERVER_INSTANCES["$instance_name"]="$instance_dir"
-                echo -e "${GREEN}   • Found instance: $instance_name at $instance_dir${NC}"
-                ((instance_count++))
-            fi
-        fi
-    done
-    
-    # Search for custom named instances (not following hxsy_* pattern)
-    for custom_dir in /root/*/; do
-        local dir_name=$(basename "$custom_dir")
-        if [[ "$dir_name" != "hxsy" && "$dir_name" != "hxsy_"* && "$dir_name" != "AKUTools" ]]; then
-            if [[ -f "$custom_dir/TicketServer" ]]; then
-                SERVER_INSTANCES["$dir_name"]="$custom_dir"
-                echo -e "${GREEN}   • Found custom instance: $dir_name at $custom_dir${NC}"
-                ((instance_count++))
-            fi
-        fi
-    done
-    
-    if [[ ${#SERVER_INSTANCES[@]} -eq 0 ]]; then
-        echo -e "${RED}>> No server instances found!${NC}"
-        exit 1
-    fi
-    
-    echo -e "${CYAN}>> Total instances detected: ${#SERVER_INSTANCES[@]}${NC}"
-}
-
-# Discover all running servers across instances
-discover_running_servers() {
-    echo -e "${BLUE}>> Discovering running servers across all instances...${NC}"
-    
-    for instance in "${!SERVER_INSTANCES[@]}"; do
-        local instance_dir="${SERVER_INSTANCES[$instance]}"
-        echo -e "${CYAN}   Checking instance: $instance${NC}"
-        
-        # Check basic servers
-        for server_type in TicketServer GatewayServer LoginServer MissionServer WorldServer ZoneServer; do
-            if pgrep -f "$instance_dir/$server_type" > /dev/null 2>&1; then
-                local server_key="${instance}-${server_type}"
-                DISCOVERED_SERVERS["$server_key"]="$instance_dir/$server_type"
-                echo -e "${GREEN}     ✓ $server_type${NC}"
-            fi
-        done
-        
-        # Check channel servers
-        for channel_dir in "$instance_dir"/Channel_*; do
-            if [[ -d "$channel_dir" ]]; then
-                local channel_name=$(basename "$channel_dir")
-                for server_type in ZoneServer WorldServer; do
-                    if pgrep -f "$channel_dir/$server_type" > /dev/null 2>&1; then
-                        local server_key="${instance}-${channel_name}-${server_type}"
-                        DISCOVERED_SERVERS["$server_key"]="$channel_dir/$server_type"
-                        echo -e "${GREEN}     ✓ $channel_name-$server_type${NC}"
-                    fi
-                done
-            fi
-        done
-    done
-    
-    if [[ ${#DISCOVERED_SERVERS[@]} -eq 0 ]]; then
-        echo -e "${YELLOW}>> No running servers found across all instances.${NC}"
-        return 1
-    fi
-    
-    echo -e "${CYAN}>> Total running servers: ${#DISCOVERED_SERVERS[@]}${NC}"
-    return 0
-}
-
-# Database connection cleanup
-cleanup_database_connections() {
-    echo -e "${BLUE}>> Cleaning up database connections...${NC}"
-    local config_file="$INSTALL_DIR/setup.ini"
-    
-    if [[ -f "$config_file" ]]; then
-        local db_pass=$(grep "^AccountDBPW=" "$config_file" | cut -d'=' -f2- | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
-        
-        if [[ -n "$db_pass" ]]; then
-            # Close idle connections
-            PGPASSWORD="$db_pass" psql -U postgres -h localhost -d postgres -c "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE state = 'idle' AND application_name LIKE '%Server%';" >/dev/null 2>&1
-            echo -e "${GREEN}>> Database connections cleaned up.${NC}"
-        else
-            echo -e "${YELLOW}>> Could not find database password for cleanup.${NC}"
-        fi
-    else
-        echo -e "${YELLOW}>> Configuration file not found for database cleanup.${NC}"
-    fi
-}
-
-# Enhanced log directory management
-setup_log_management() {
-    if [ ! -d "$LOG_DIR" ]; then
-        mkdir -p "$LOG_DIR" || { echo -e "${RED}>> Failed to create log directory.${NC}"; exit 1; }
-        echo -e "${GREEN}>> Log directory created: $LOG_DIR${NC}"
-    else
-        echo -e "${BLUE}>> Log directory exists: $LOG_DIR${NC}"
-    fi
-}
-
-# Enhanced server stopping with graceful timeout for multi-server environment
-stop_server() {
-    local server_key="$1"
-    local server_path="$2"
-    local server_name=$(basename "$server_path")
-    
-    echo -e "${BLUE}>> Attempting to stop $server_key...${NC}"
-    
-    # Check if server is running using the full path
-    if ! pgrep -f "$server_path" > /dev/null; then
-        echo -e "${YELLOW}>> $server_key is not running.${NC}"
-        return 0
-    fi
-    
-    # Get PID for monitoring
-    local server_pid=$(pgrep -f "$server_path" | head -n1)
-    echo -e "${BLUE}   Stopping PID: $server_pid${NC}"
-    
-    # Send TERM signal for graceful shutdown
-    pkill -TERM -f "$server_path" 2>/dev/null
-    
-    # Wait for graceful shutdown
-    local waited=0
-    while [ $waited -lt $GRACEFUL_TIMEOUT ]; do
-        if ! pgrep -f "$server_path" > /dev/null; then
-            echo -e "${GREEN}>> $server_key stopped gracefully.${NC}"
-            return 0
-        fi
-        sleep 1
-        waited=$((waited + 1))
-    done
-    
-    # If still running, send INT signal
-    echo -e "${YELLOW}>> $server_key did not stop gracefully, sending interrupt...${NC}"
-    pkill -INT -f "$server_path" 2>/dev/null
-    
-    # Wait for interrupt shutdown
-    waited=0
-    while [ $waited -lt $FORCE_TIMEOUT ]; do
-        if ! pgrep -f "$server_path" > /dev/null; then
-            echo -e "${GREEN}>> $server_key stopped after interrupt.${NC}"
-            return 0
-        fi
-        sleep 1
-        waited=$((waited + 1))
-    done
-    
-    # Force kill if necessary
-    echo -e "${RED}>> $server_key did not respond, forcing termination.${NC}"
-    pkill -KILL -f "$server_path" 2>/dev/null
-    sleep 2
-    
-    if pgrep -f "$server_path" > /dev/null; then
-        echo -e "${RED}>> Warning: $server_key may still be running.${NC}"
-        return 1
-    else
-        echo -e "${GREEN}>> $server_key forcefully terminated.${NC}"
-        return 0
-    fi
-}
-
-# Enhanced server log management for multi-server environment
-move_server_logs() {
-    local instance="$1"
-    local instance_dir="$2"
-    
-    echo -e "${BLUE}>> Moving logs for instance: $instance${NC}"
-    
-    # Create instance-specific log directory
-    local instance_log_dir="$LOG_DIR/$instance"
-    mkdir -p "$instance_log_dir"
-    
-    local log_count=0
-    
-    # Move logs from main instance directory
-    for pattern in "*.log.*" "*.log" "*.txt"; do
-        find "$instance_dir" -maxdepth 1 -type f -name "$pattern" -print0 2>/dev/null | while IFS= read -r -d '' log_file; do
-            if [[ -f "$log_file" ]]; then
-                base_log_file=$(basename "$log_file")
-                mv "$log_file" "$instance_log_dir/${CURRENT_DATE}_${base_log_file}" 2>/dev/null
-                log_count=$((log_count + 1))
-            fi
-        done
-    done
-    
-    # Move logs from channel directories
-    for channel_dir in "$instance_dir"/Channel_*; do
-        if [[ -d "$channel_dir" ]]; then
-            local channel_name=$(basename "$channel_dir")
-            for pattern in "*.log.*" "*.log" "*.txt"; do
-                find "$channel_dir" -maxdepth 1 -type f -name "$pattern" -print0 2>/dev/null | while IFS= read -r -d '' log_file; do
-                    if [[ -f "$log_file" ]]; then
-                        base_log_file=$(basename "$log_file")
-                        mv "$log_file" "$instance_log_dir/${channel_name}_${CURRENT_DATE}_${base_log_file}" 2>/dev/null
-                        log_count=$((log_count + 1))
-                    fi
-                done
-            done
-        fi
-    done
-    
-    if [ $log_count -gt 0 ]; then
-        echo -e "${GREEN}   - Moved logs for $instance to $instance_log_dir${NC}"
-    fi
-}
-
-# Database connection cleanup for all instances
-cleanup_database_connections() {
-    echo -e "${BLUE}>> Cleaning up database connections for all instances...${NC}"
-    
-    for instance in "${!SERVER_INSTANCES[@]}"; do
-        local instance_dir="${SERVER_INSTANCES[$instance]}"
-        local config_file="$instance_dir/setup.ini"
-        
-        if [[ -f "$config_file" ]]; then
-            local db_pass=$(grep "^AccountDBPW=" "$config_file" | cut -d'=' -f2- | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
-            
-            if [[ -n "$db_pass" ]]; then
-                # Close idle connections for this instance
-                PGPASSWORD="$db_pass" psql -U postgres -h localhost -d postgres -c "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE state = 'idle' AND application_name LIKE '%Server%';" >/dev/null 2>&1
-                echo -e "${GREEN}   - Database connections cleaned for $instance${NC}"
-            fi
-        fi
-    done
-    
-    echo -e "${GREEN}>> Database connection cleanup completed.${NC}"
-}
-
-# Enhanced log directory management for all instances
-setup_log_management() {
-    # Main log directory
-    if [ ! -d "$LOG_DIR" ]; then
-        mkdir -p "$LOG_DIR" || { echo -e "${RED}>> Failed to create log directory.${NC}"; exit 1; }
-        echo -e "${GREEN}>> Main log directory created: $LOG_DIR${NC}"
-    else
-        echo -e "${BLUE}>> Main log directory exists: $LOG_DIR${NC}"
-    fi
-    
-    # Instance-specific log directories
-    for instance in "${!SERVER_INSTANCES[@]}"; do
-        local instance_log_dir="$LOG_DIR/$instance"
-        if [ ! -d "$instance_log_dir" ]; then
-            mkdir -p "$instance_log_dir"
-            echo -e "${GREEN}>> Instance log directory created: $instance_log_dir${NC}"
-        fi
-    done
-}
-
-# Enhanced log cleanup for all instances
-enhanced_log_cleanup() {
-    echo -e "${BLUE}>> Performing enhanced log cleanup for all instances...${NC}"
-    
-    # Clean old application logs (keep last 7 days)
-    find "$LOG_DIR" -mindepth 1 -type f -mtime +7 -delete 2>/dev/null
-    
-    # Compress old logs (older than 1 day)
-    find "$LOG_DIR" -mindepth 1 -type f -name "*.log*" -mtime +1 ! -name "*.gz" -exec gzip {} \; 2>/dev/null
-    
-    # Clean core dumps from all instances
-    for instance in "${!SERVER_INSTANCES[@]}"; do
-        local instance_dir="${SERVER_INSTANCES[$instance]}"
-        find "$instance_dir" -name "core.*" -type f -delete 2>/dev/null
-        
-        # Clean core dumps from channel directories
-        for channel_dir in "$instance_dir"/Channel_*; do
-            if [[ -d "$channel_dir" ]]; then
-                find "$channel_dir" -name "core.*" -type f -delete 2>/dev/null
-            fi
-        done
-    done
-    
-    echo -e "${GREEN}>> Enhanced log cleanup completed for all instances.${NC}"
-}
-
-# Enhanced system cleanup for multi-server environment
-perform_system_cleanup() {
-    echo -e "${BLUE}>> Performing system cleanup...${NC}"
-    
-    # Clear shared memory segments that might be left by servers
-    ipcs -m | grep "^0x" | awk '{print $2}' | xargs -I {} ipcrm -m {} 2>/dev/null
-    
-    # Clear any semaphores
-    ipcs -s | grep "^0x" | awk '{print $2}' | xargs -I {} ipcrm -s {} 2>/dev/null
-    
-    # Clean temporary files
-    find /tmp -name "hxsy_*" -type f -delete 2>/dev/null
-    
-    echo -e "${GREEN}>> System cleanup completed.${NC}"
-}
-
-# Create shutdown order based on server dependencies
-create_shutdown_order() {
-    local -A shutdown_order
-    local order_counter=1
-    
-    # Define shutdown order (reverse of startup order)
-    # 1. Zone Servers (channels first, then main)
-    # 2. World Servers (channels first, then main)  
-    # 3. Mission Server
-    # 4. Login Server
-    # 5. Gateway Server
-    # 6. Ticket Server
-    
-    echo -e "${BLUE}>> Creating optimal shutdown order...${NC}"
-    
-    # First: Channel Zone Servers
-    for server_key in "${!DISCOVERED_SERVERS[@]}"; do
-        if [[ "$server_key" == *"Channel_"*"ZoneServer" ]]; then
-            shutdown_order["$order_counter"]="$server_key"
-            ((order_counter++))
-        fi
-    done
-    
-    # Second: Channel World Servers
-    for server_key in "${!DISCOVERED_SERVERS[@]}"; do
-        if [[ "$server_key" == *"Channel_"*"WorldServer" ]]; then
-            shutdown_order["$order_counter"]="$server_key"
-            ((order_counter++))
-        fi
-    done
-    
-    # Third: Main Zone Servers
-    for server_key in "${!DISCOVERED_SERVERS[@]}"; do
-        if [[ "$server_key" == *"ZoneServer" && "$server_key" != *"Channel_"* ]]; then
-            shutdown_order["$order_counter"]="$server_key"
-            ((order_counter++))
-        fi
-    done
-    
-    # Fourth: Main World Servers
-    for server_key in "${!DISCOVERED_SERVERS[@]}"; do
-        if [[ "$server_key" == *"WorldServer" && "$server_key" != *"Channel_"* ]]; then
-            shutdown_order["$order_counter"]="$server_key"
-            ((order_counter++))
-        fi
-    done
-    
-    # Fifth: Mission Servers
-    for server_key in "${!DISCOVERED_SERVERS[@]}"; do
-        if [[ "$server_key" == *"MissionServer" ]]; then
-            shutdown_order["$order_counter"]="$server_key"
-            ((order_counter++))
-        fi
-    done
-    
-    # Sixth: Login Servers
-    for server_key in "${!DISCOVERED_SERVERS[@]}"; do
-        if [[ "$server_key" == *"LoginServer" ]]; then
-            shutdown_order["$order_counter"]="$server_key"
-            ((order_counter++))
-        fi
-    done
-    
-    # Seventh: Gateway Servers
-    for server_key in "${!DISCOVERED_SERVERS[@]}"; do
-        if [[ "$server_key" == *"GatewayServer" ]]; then
-            shutdown_order["$order_counter"]="$server_key"
-            ((order_counter++))
-        fi
-    done
-    
-    # Last: Ticket Servers
-    for server_key in "${!DISCOVERED_SERVERS[@]}"; do
-        if [[ "$server_key" == *"TicketServer" ]]; then
-            shutdown_order["$order_counter"]="$server_key"
-            ((order_counter++))
-        fi
-    done
-    
-    # Print shutdown order
-    for order in $(seq 1 $((order_counter-1))); do
-        if [[ -n "${shutdown_order[$order]}" ]]; then
-            SHUTDOWN_ORDER+=("${shutdown_order[$order]}")
-        fi
-    done
-    
-    echo -e "${GREEN}>> Shutdown order created with ${#SHUTDOWN_ORDER[@]} servers.${NC}"
-}
-
-# Main execution
-declare -a SHUTDOWN_ORDER
-START_TIME=$(date +%s)
-
-# Detect all server instances
-detect_server_instances
-
-# Setup log management
-setup_log_management
-
-# Discover running servers
-if ! discover_running_servers; then
-    echo -e "${YELLOW}>> No servers to stop. Performing cleanup only.${NC}"
-    enhanced_log_cleanup
-    perform_system_cleanup
-    exit 0
-fi
-
-# Create optimal shutdown order
-create_shutdown_order
-
-echo -e "${BLUE}>> Stopping ${#SHUTDOWN_ORDER[@]} servers across ${#SERVER_INSTANCES[@]} instances in safe order...${NC}"
-
-# Stop servers in the calculated order
-failed_shutdowns=()
-for server_key in "${SHUTDOWN_ORDER[@]}"; do
-    server_path="${DISCOVERED_SERVERS[$server_key]}"
-    if ! stop_server "$server_key" "$server_path"; then
-        failed_shutdowns+=("$server_key")
-    fi
-    # Small delay between shutdowns to prevent resource conflicts
-    sleep 1
-done
-
-# Move logs for all instances
-echo -e "${BLUE}>> Moving logs for all instances...${NC}"
-for instance in "${!SERVER_INSTANCES[@]}"; do
-    move_server_logs "$instance" "${SERVER_INSTANCES[$instance]}"
-done
-
-# Cleanup operations
-cleanup_database_connections
-enhanced_log_cleanup
-perform_system_cleanup
-
-# Final status check across all instances
-echo -e "${BLUE}>> Performing final status check across all instances...${NC}"
-running_servers=()
-for server_key in "${!DISCOVERED_SERVERS[@]}"; do
-    server_path="${DISCOVERED_SERVERS[$server_key]}"
-    if pgrep -f "$server_path" > /dev/null; then
-        running_servers+=("$server_key")
-    fi
-done
-
-if [ ${#running_servers[@]} -eq 0 ]; then
-    echo -e "${GREEN}
-==================================================
-      All Multi-Server Instances Stopped Successfully
-==================================================${NC}"
-    echo -e "${BLUE}>> Shutdown completed in $(($(date +%s) - START_TIME)) seconds.${NC}"
-    echo -e "${BLUE}>> Stopped ${#SHUTDOWN_ORDER[@]} servers across ${#SERVER_INSTANCES[@]} instances.${NC}"
-    echo -e "${BLUE}>> All logs have been organized in: $LOG_DIR${NC}"
-    
-    # Clean up PID files
-    for instance in "${!SERVER_INSTANCES[@]}"; do
-        local instance_dir="${SERVER_INSTANCES[$instance]}"
-        if [[ -f "$instance_dir/.server_pids" ]]; then
-            rm -f "$instance_dir/.server_pids"
-            echo -e "${GREEN}>> Cleaned PID file for $instance${NC}"
-        fi
-    done
-    
+# Ensure the log directory exists
+if [ ! -d "$LOG_DIR" ]; then
+    mkdir -p "$LOG_DIR" || { echo -e "${RED}>> Failed to create log directory.${NC}"; exit 1; }
+    echo -e "${GREEN}>> Log directory created: $LOG_DIR${NC}"
 else
-    echo -e "${YELLOW}
-==================================================
-       Warning: Some Servers Still Running
-==================================================${NC}"
-    echo -e "${RED}Still running servers:${NC}"
-    for server in "${running_servers[@]}"; do
-        echo -e "${RED}   • $server${NC}"
-    done
-    echo -e "${YELLOW}You may need to manually kill these processes.${NC}"
-    
-    if [ ${#failed_shutdowns[@]} -gt 0 ]; then
-        echo -e "${RED}Failed shutdowns:${NC}"
-        for server in "${failed_shutdowns[@]}"; do
-            echo -e "${RED}   • $server${NC}"
-        done
-    fi
+    echo -e "${BLUE}>> Log directory exists: $LOG_DIR${NC}"
 fi
 
-echo -e "${PURPLE}>> Multi-server shutdown process completed.${NC}"
+# Function to gracefully stop a server
+stop_server() {
+    local server_name="$1"
+    echo -e "${BLUE}>> Attempting to stop $server_name...${NC}"
+    pkill -TERM -f "$server_name" 2>/dev/null
+    sleep 3
+    if pgrep -f "$server_name" > /dev/null; then
+        echo -e "${RED}>> $server_name did not stop gracefully; forcing termination.${NC}"
+        pkill -KILL -f "$server_name" 2>/dev/null
+    else
+        echo -e "${GREEN}>> $server_name stopped successfully.${NC}"
+    fi
+}
+
+# Function to move server logs
+move_server_logs() {
+    local server_name="$1"
+    find "$INSTALL_DIR/$server_name" -type f -name "*.log.*" -print0 | while IFS= read -r -d '' log_file; do
+        base_log_file=$(basename "$log_file")
+        mv "$log_file" "$LOG_DIR/${server_name}_${CURRENT_DATE}_${base_log_file}"
+    done
+}
+
+# Optionally clear application-specific old logs (not system logs)
+clear_old_logs() {
+    echo -e "${BLUE}>> Clearing old application logs in $LOG_DIR (excluding 'Startup' folder)...${NC}"
+    find "$LOG_DIR" -mindepth 1 -maxdepth 1 ! -name 'Startup' -exec rm -rf {} +
+    echo -e "${GREEN}>> Old logs cleared from $LOG_DIR.${NC}"
+}
+
+# List of servers to stop in reverse order for proper shutdown
+SERVERS=( "ZoneServer" "WorldServer" "MissionServer" "LoginServer" "GatewayServer" "TicketServer" )
+
+# Stop servers and move their logs
+for server in "${SERVERS[@]}"; do
+    stop_server "$server"
+    move_server_logs "$server"
+done
+
+clear_old_logs
+
+echo -e "${BLUE}>> All application logs have been moved to: $LOG_DIR${NC}"
+echo -e "${GREEN}>> All servers have been stopped.${NC}"
