@@ -1,350 +1,89 @@
-# 🎮 Aura Kingdom Server Framework (AKF)
+## How to Use the AK Server Installer Script
 
-A comprehensive, automated installer and management suite for Aura Kingdom private servers. Designed for seamless deployment on multiple Linux distributions with professional-grade features and advanced management tools.
+To install and set up the AK Server using the installer script, follow these simple steps:
 
-## 🚀 Quick Start
+- **Connect to Your Server:** Use SSH to connect to your server, either using an SSH client or your terminal.
 
-```bash
+- **Run the Installer Command:** Once connected, execute the following command in your server’s terminal:
+
+```sh
 cd /root && curl -o fullinstaller.sh https://raw.githubusercontent.com/MrDulgan/AKF/main/fullinstaller.sh && chmod +x fullinstaller.sh && ./fullinstaller.sh
 ```
 
-## 📋 System Requirements
+## AK Installer Features :
 
-- **OS**: Debian 11 (recommended), Ubuntu, CentOS/RHEL, or compatible Linux
-- **RAM**: Minimum 4GB (8GB+ recommended for multi-server)
-- **Storage**: At least 2GB free space
-- **Kernel**: 5.x recommended (6.x+ supported with compatibility optimizations)
-- **Architecture**: x86_64 (ARM64 experimental support)
+- **Interactive Installer:** The script starts with a welcoming message and interacts with the user by asking for input (e.g., IP selection) during the installation process.
 
-## ⚡ Key Features
+- **Supports Debian and CentOS:** Automatically detects if the system is running Debian or CentOS, and adjusts package management and installation commands accordingly.
 
-### 🔧 **Enhanced Automation**
-- Interactive IP selection and configuration
-- PostgreSQL 13 auto-installation and setup
-- Secure password generation with complexity validation
-- **SSH server configuration** (optional PuTTY/remote access)
-- Firewall configuration (UFW/Firewalld)
-- **Multi-distribution support** with compatibility libraries
+- **Automatic Locale Configuration:** It installs the appropriate packages (locales for Debian, glibc-langpack-en for CentOS) and generates required locales (en_US.UTF-8, POSIX, etc.) based on the detected operating system, ensuring compatibility and proper locale configuration.
 
-### 🛡️ **Advanced Security & Reliability**
-- Enhanced admin account validation (secure passwords, reserved names check)
-- Advanced PostgreSQL security configuration
-- **Kernel parameter optimization** for game servers
-- **System limits configuration** (file descriptors, processes)
-- **Legacy compatibility libraries** for binary execution
-- **CPU architecture detection** and optimization
-- Automated backup and error recovery
-- Comprehensive logging system
-- **Intelligent GRUB configuration** for vsyscall support
-- Input validation and sanity checks
-- Download verification and retry mechanisms
+- **Kernel Version Compatibility Warning:** Notifies users if the kernel version is 6.x or higher, recommending downgrading to 5.x for better compatibility with the server binaries.
 
-### 📊 **Professional Server Management**
-- **AKUTools Management Suite** - Centralized control panel
-- **Enhanced monitoring** with multi-server/instance support
-- **Non-blocking server startup** - terminal stays free after launch
-- Real-time resource monitoring (CPU/RAM/Network)
-- Process crash detection and alerting
-- Graceful server shutdown/startup
-- Systemd service integration (optional)
-- **Multi-instance management** - Switch between server setups
+- **PostgreSQL Management:** Checks if PostgreSQL is installed and manages the installation of version 13. It can remove existing versions and install the correct one if needed.
 
-### 🎯 **Advanced Game Features**
-- Admin account creation with full privileges
-- Database management and IP updates
-- Binary patching for optimal performance
-- **Multi-server architecture support with shared database**
-- **Real multi-server instances (same PostgreSQL, different ports)**
-- **Multi-channel support (multiple channels per server)**
-- **Cross-distribution compatibility** optimizations
-- **Enhanced Server Manager** - Unified management interface
-- **Auto-database password detection** - No manual entry required
-- **Instance auto-discovery** - Automatic detection of existing servers
+- **Password Security:** Generates a secure random password for the PostgreSQL user and ensures proper security configurations.
 
-## 🎮 Server Management
+- **Firewall Configuration:** Automatically configures firewall rules for necessary ports, supporting both UFW and Firewalld, depending on the system.
 
-### 🚀 **Quick Launch Commands**
-```bash
-# Start server (optimized - non-blocking)
-/root/hxsy/start
+- **Directory Handling:** If the installation directory already exists, the script offers options to either delete it or rename it and proceed with the installation.
 
-# Stop server
-/root/hxsy/stop
+- **Server File Download and Extraction:** Downloads server files from a specified URL, unpacks them, and sets proper file permissions.
 
-# Enhanced monitoring with multi-server support
-/root/hxsy/monitor.sh
+- **Database Setup:** Automatically creates necessary databases, imports SQL backups, and applies updates such as IP address adjustments in the database.
 
-# Access centralized management suite
-/root/hxsy/akutools
-```
+- **File Patching:** Patches specific server binaries and configuration files, including replacing placeholder values with actual server IPs and database credentials.
 
-### 🛠️ **AKUTools Management Suite** (`/root/AKUTools/`)
+- **GRUB Configuration for Compatibility:** Configures the GRUB bootloader to enable vsyscall emulation, which is required for certain server binaries to function properly.
 
-The centralized management interface providing professional-grade server administration:
+- **Admin Account Creation:** The script prompts the user to create an admin account for managing the server, ensuring that the admin account has the highest privileges.
 
-```bash
-# Launch AKUTools interface
-/root/hxsy/akutools
+- **Start and Stop Scripts:** Downloads and configures start and stop scripts for easily managing the server once it is set up.
 
-# Direct tool access
-/root/AKUTools/monitor.sh           # Enhanced multi-server monitoring
-/root/AKUTools/backup.sh            # Advanced backup system
-/root/AKUTools/restore.sh           # Intelligent restore system
-/root/AKUTools/account_creator.sh   # Game account management
-/root/AKUTools/server_manager.sh    # Enhanced Server Manager
-/root/AKUTools/security_functions.sh # Security management tools
-```
+- **Comprehensive Error Handling:** At each step, if an error occurs, the script provides clear error messages, allowing users to diagnose and resolve issues effectively.
 
-### 🎯 **Enhanced Server Manager** (`server_manager.sh`)
+- **Final Installation Summary:** Once the installation is complete, the script provides a summary of important details, including the server IP, PostgreSQL version, database credentials, and paths to start the server.
 
-**NEW**: Unified interface combining multi-server and multi-channel management with advanced features:
 
-```bash
-# Launch Enhanced Server Manager
-/root/hxsy/server_manager.sh
 
-# Core Features:
-• Auto-detects database password from setup.ini
-• Multi-server instance creation and management
-• Enhanced Channel Manager - Intelligent batch channel creation
-• Instance auto-discovery and switching
-• Database integration with automatic setup
-• Server/channel removal with safety checks
-• Unified management interface
-```
+## Start Script Features :
 
-### 🚀 **Enhanced Channel Manager**
+- **Directory Management:** Ensures that the Logs/Startup directory exists. If it doesn’t, the script automatically creates it and logs the creation process.
 
-```bash
-# Launch Enhanced Channel Manager
-./server_manager.sh → Enhanced Channel Manager (Batch)
+- **Comprehensive Logging:** Creates a startup_logs file within the Logs/Startup directory to record all actions and outputs during the server startup process.
 
-# Smart Features:
-• "How many channels do you want?" - Just specify total count
-• Automatically creates missing channels (e.g., if 4 exist, need 8 → creates 5-8)
-• Intelligent analysis of existing channels
-• Batch creation with progress tracking
-• Error handling and rollback protection
-• Database integration with auto-configuration
-• Support for any server instance (hxsy, hxsy_pvp, custom names)
-```
+- **Graceful Shutdown of Servers:** Silently stops any currently running server instances (LoginServer, GatewayServer, etc.) before starting new ones to avoid conflicts.
 
-**Example Workflow:**
-```bash
-Current channels: 1, 2, 3, 4
-User wants: 8 channels total
-System creates: 5, 6, 7, 8 automatically
-Result: Complete 1-8 channel setup
-```
+- **CTRL+C Handling:** Includes a trap function that listens for CTRL+C interrupts. If triggered, it stops all servers gracefully using the stop script before exiting.
 
-### 📊 **Enhanced Monitoring Features**
-- **Multi-instance support** - Manage multiple server installations
-- **Real-time switching** between server instances (`[i]` key)
-- **Quick instance access** (number keys 1-9)
-- **Integrated AKUTools** access (`[a]` key)
-- **Enhanced Server Manager** access (`[s]` key)
-- **Advanced process monitoring** with crash detection
-- **Resource usage tracking** (CPU, RAM, Network)
-- **Log file integration** and error detection
+- **Server Startup Process:** Starts multiple servers (TicketServer, GatewayServer, LoginServer, MissionServer, WorldServer, ZoneServer) one by one, logging success or failure for each, and checks if the server process is running after startup.
 
-### 🎯 **Multi-Server Management**
+- **Port Handling:** Supports passing a specific port for servers that require it, such as the TicketServer which starts on port 7777.
 
-**Enhanced Server Manager** - Unified interface with auto-detection:
-```bash
-# Launch unified server management interface
-./server_manager.sh
+- **Process Management:** Tracks the process IDs (PIDs) of each running server to monitor their status continuously and handle crashes.
 
-# Create server instances (with automatic database setup)
-./server_manager.sh → Create New Server Instance → pvp_server
-./server_manager.sh → Create New Server Instance → pve_server
+- **Resource Usage Monitoring:** Displays the uptime, CPU, and RAM usage in real-time once all servers are started, giving users insight into the server’s performance.
 
-# Single channel creation
-./server_manager.sh → Create Single Channel → Select Instance → Channel Number
+- **Crash Detection:** Actively monitors if any server crashes during operation, notifying the user via the console and logging the event in the startup log.
 
-# Batch channel creation (NEW!)
-./server_manager.sh → Enhanced Channel Manager (Batch) → Total Count
+- **Real-time Uptime Display:** Continuously updates the terminal with the server's running time (in days, hours, minutes, seconds) and system resource usage (CPU and RAM).
 
-# Features:
-• Auto-detects PostgreSQL password from setup.ini
-• Instance auto-discovery (all existing servers)
-• Database auto-creation and configuration
-• Port management with conflict detection
-• Enhanced Channel Manager with batch creation
-• Safety checks and validation
-• Unified removal with database cleanup
-```
 
-### 🔧 **System Administration**
-```bash
-# SSH Configuration (if enabled during installation)
-ssh root@YOUR_SERVER_IP              # Remote access via SSH
-# PuTTY Settings: Host: YOUR_IP, Port: 22, Connection Type: SSH
 
-# Legacy backup/restore (also available as shortcuts)
-/root/hxsy/backup.sh                 # Quick backup
-/root/hxsy/restore.sh                # Quick restore
-/root/hxsy/account_creator.sh        # Quick account creation
+## Stop Script Features:
 
-# System optimization verification
-cat /etc/sysctl.d/99-gameserver-optimization.conf    # Kernel parameters
-cat /etc/security/limits.conf                        # System limits
-```
+- **Log Directory Management:** Ensures the Logs directory exists within the installation path. If it doesn’t, the script creates it to store logs safely.
 
-### ⚙️ **Systemd Integration** (optional)
-```bash
-systemctl start|stop|restart aurakingdom
-systemctl status aurakingdom
-systemctl enable aurakingdom          # Auto-start on boot
-```
+- **System Log Clearance:** Clears a list of key system log files (syslog, wtmp, secure, etc.), ensuring old logs are removed to free up space and maintain a clean logging environment.
 
-## 🏗️ **Installation Features**
+- **Old Server Log Cleanup:** Automatically finds and deletes all logs in the Logs directory except for the Startup folder, helping to keep the directory organized by removing unnecessary files.
 
-### 🔍 **Compatibility Optimizations**
-- **Multi-distribution support**: Debian, Ubuntu, CentOS, RHEL
-- **Kernel compatibility**: Automatic detection and optimization
-- **Legacy library installation**: 32-bit compatibility for older binaries
-- **Architecture detection**: x86_64 optimized, ARM64 experimental
-- **Binary dependency verification**: Dynamic loader and library checks
+- **Server Log Archiving:** Moves server logs into the Logs directory, renaming them with the current date to ensure easy tracking of old logs for later analysis.
 
-### 🛡️ **Security Enhancements**
-- **SSH server configuration**: Optional remote access setup
-- **Firewall integration**: UFW/Firewalld automatic configuration
-- **PostgreSQL hardening**: Secure default configuration
-- **Input validation**: Protection against malicious input
-- **Password complexity**: Enforced strong password policies
+- **Graceful Server Shutdown:** Stops all servers (ZoneServer, WorldServer, MissionServer, LoginServer, GatewayServer, TicketServer) in reverse order, ensuring that they are properly shut down and preventing any conflicts.
 
-### ⚡ **Performance Optimizations**
-- **Kernel parameter tuning**: Network and memory optimizations
-- **System limits configuration**: Process and file descriptor limits
-- **GRUB configuration**: vsyscall=emulate for binary compatibility
-- **Resource monitoring**: Built-in performance tracking
+- **Success and Error Notifications:** Provides clear color-coded messages indicating whether each server was successfully stopped or if it was already inactive, ensuring full transparency in the shutdown process.
 
-## 📁 Directory Structure
+- **Comprehensive Log Management:** After shutting down servers, the script moves all server logs into the Logs directory, ensuring that no logs are lost and they are stored for future reference.
 
-```
-/root/hxsy/                    # Primary server instance
-├── start                      # Optimized startup script (non-blocking)
-├── stop                       # Server shutdown script
-├── monitor.sh                 # Enhanced monitoring (multi-server support)
-├── akutools                   # AKUTools launcher script
-├── backup.sh                  # Symlink to AKUTools
-├── restore.sh                 # Symlink to AKUTools  
-├── account_creator.sh         # Symlink
-├── setup.ini                  # Database configuration
-├── config.ini                 # Game features configuration
-├── .server_pids               # Runtime PID information
-├── Logs/                      # Log files and backups
-├── TicketServer/              # Game server components
-├── GatewayServer/             
-├── LoginServer/               
-├── MissionServer/             
-├── WorldServer/               
-└── ZoneServer/                
-
-/root/AKUTools/                # Centralized Management Suite
-├── monitor.sh                 # Enhanced multi-server monitoring
-├── backup.sh                  # Advanced backup system
-├── restore.sh                 # Intelligent restore system
-├── account_creator.sh         # Game account management
-├── server_manager.sh          # Enhanced Server Manager
-├── security_functions.sh      # Security management tools
-└── server_*.conf              # Server instance configurations
-
-/root/hxsy-pvp/                # Additional PVP server instance
-├── [same structure as base]   # Same files with different ports
-├── Different ports:           # LoginServer: 6643, TicketServer: 7877
-└── Same database access       # Uses same PostgreSQL instance
-
-/root/hxsy-pve/                # Additional PVE server instance  
-├── [same structure as base]   # Same files with different ports
-├── Different ports:           # LoginServer: 6743, TicketServer: 7977
-└── Same database access       # Uses same PostgreSQL instance
-
-/etc/sysctl.d/
-└── 99-gameserver-optimization.conf  # Kernel optimizations
-
-/etc/security/
-└── limits.conf                # Updated with game server limits
-```
-
-## ⚙️ Enhanced Configuration
-
-### 🗄️ **Database Configuration**
-- **Database**: PostgreSQL 13 with auto-generated secure passwords
-- **Security**: Enhanced authentication and connection limits
-- **Shared Access**: All server instances use same PostgreSQL database
-- **Tables**: FFAccount, FFDB1, FFMember with optimized schema
-
-### 🌐 **Network Configuration**
-- **Base Server Ports**: LoginServer:6543, TicketServer:7777, GatewayServer:7878
-- **Multi-Server Ports**: Each additional server uses +100 port offset
-- **Multi-Channel Ports**: Each channel uses +1 port offset (5567, 5568, 5569...)
-- **SSH Access**: Optional SSH server on port 22 for remote management
-- **Firewall**: Automatic UFW/Firewalld configuration
-
-### 📂 **Installation Paths**
-- **Default Install Path**: `/root/hxsy` (primary server)
-- **Additional Servers**: `/root/hxsy-{name}` pattern
-- **Management Tools**: `/root/AKUTools/` (centralized)
-- **Logs**: Individual server log directories with rotation
-
-### 🎮 **Game Server Configuration**
-- **World IDs**: Each server gets unique WorldServerID and ZoneServerID  
-- **Channel System**: Base=Aurora-Ch01, Additional=Aurora-Ch02, Aurora-Ch03...
-- **Binary Compatibility**: vsyscall=emulate kernel parameter
-- **Performance**: Optimized kernel parameters and system limits
-
-### � **System Optimization**
-- **Kernel Parameters**: Network, memory, and process optimizations
-- **File Descriptors**: Increased limits for server processes
-- **Memory Management**: Swappiness and cache pressure tuning
-- **Legacy Support**: 32-bit compatibility libraries for older binaries
-
-## 🎯 **Post-Installation Management**
-
-### 📊 **Monitoring & Maintenance**
-- **Real-time monitoring**: Enhanced dashboard with multi-server support
-- **Automated backups**: Scheduled and on-demand backup system
-- **Log management**: Automatic rotation and error detection
-- **Health checks**: Process monitoring and crash detection
-- **Performance tracking**: Resource usage and optimization suggestions
-
-### 🔐 **Security Features**
-- **SSH hardening**: Secure remote access configuration
-- **Database security**: PostgreSQL access control and authentication
-- **Firewall management**: Automatic rule configuration
-- **Password policies**: Enforced complexity requirements
-- **Access logging**: Comprehensive audit trail
-
-### 🚀 **Scalability Options**
-- **Multi-server deployment**: Multiple server instances with shared database
-- **Channel expansion**: Additional channels per server
-- **Load balancing**: Distribute players across instances
-- **Resource monitoring**: Scale based on usage patterns
-
-## 🔨 Development & Support
-
-### 👨‍💻 **Developer Information**
-Created with ❤️ by **Dulgan**
-
-### 📝 **Version History**
-- **v4.0+**: Enhanced Server Manager, Auto-DB detection, Unified interface, Instance auto-discovery
-- **v3.0+**: AKUTools Suite, Enhanced monitoring, Multi-distribution support
-- **v2.x**: Multi-server/channel support, Advanced security
-- **v1.x**: Basic automation, PostgreSQL integration
-
-### 🐛 **Troubleshooting**
-- **Installation logs**: `/tmp/ak_installer.log`
-- **Server logs**: Individual server log directories
-- **System logs**: `/var/log/` for system-level issues
-- **GRUB issues**: Manual configuration guide in installation output
-
-### 🤝 **Contributing**
-- Report issues via GitHub Issues
-- Submit pull requests for improvements
-- Share configuration optimizations
-- Help test on different distributions
-
----
-
-*For detailed installation process, troubleshooting guides, and advanced configuration options, check the comprehensive logs and documentation generated during installation.*
+The whole script including start and stop is coded by **Dulgan**.
